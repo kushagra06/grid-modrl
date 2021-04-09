@@ -12,7 +12,7 @@ import tensorflow as tf
 config = tf.compat.v1.ConfigProto(device_count = {'GPU':0, 'CPU': 6} ) 
 
 class QModule:
-    def __init__(self, env, eps=0., alpha=0.1, gamma=0.99):
+    def __init__(self, env, eps=0.3, alpha=0.1, gamma=0.9):
         self.env = env
         self._height = len(self.env.gridworld)
         self._width = len(self.env.gridworld[0])
@@ -44,23 +44,31 @@ class QModule:
         e_x = np.exp(x - np.max(x))
         return e_x / e_x.sum()
 
+
 class PolMixModule:
-    def __init__(self, env, n_acts, eps=0., alpha=0.1, gamma=1.):
+    def __init__(self, env, n_acts=2, eps=0., alpha=0.1, gamma=1.):
         self.sess = tf.Session(config=config)
         K.set_session(self.sess)
         self.env = env
         self.n_acts = n_acts
         self.n_states = self.env.observation_space.n
+        self.n_acts_module = self.env.action_space.n
         self.alpha_actor = alpha
         self.alpha_critic = alpha
         self.gamma = gamma
         self.eps = eps
+        state = np.zeros((1,self.env.observation_space.n,))
+        state[0][self.env.cur_state] = 1
+        # self.cur_state = tf.convert_to_tensor(state, np.float)
+        # self.cur_state = np.expand_dims(state,axis=0)
+        self.cur_state = state
+
         # self.actor = np.ones([self.n_states, self.n_acts])/self.n_actions
         # self.critic = np.zeros([self.n_states, self.n_acts])
-        self.actor_in, self.actor = self.create_actor()
+        self.actor_in, self.actor_model = self.create_actor()
 
-        self.critic_in, self.critic = self.create_critic()
-        _, self.target_crtic = self.create_critic()
+        self.critic_in, self.critic_model = self.create_critic()
+        _, self.target_critic_model = self.create_critic()
 
         self._actor_train_fn()
         self.onpolicy_buffer = []
@@ -68,11 +76,19 @@ class PolMixModule:
         self.sess.run(tf.compat.v1.initialize_all_variables())
 
 
+    def update_state(self, state_val):
+        state_array = np.zeros((1,self.env.observation_space.n))
+        state_array[0][state_val] = 1
+        # self.cur_state = tf.convert_to_tensor(state_array, np.float)
+        # self.cur_state = np.expand_dims(state_array, axis=0)
+        self.cur_state = state_array
+
+    
     def _actor_train_fn(self):
         q_arb = K.placeholder(shape=(None,1),name="q_arb")
-        pol_1 = K.placeholder(shape=(None,self.n_acts),name="pol_1")
-        pol_2 = K.placeholder(shape=(None,self.n_acts),name="pol_2")
-        actions = K.placeholder(shape=(None,self.n_acts),name="actions")
+        pol_1 = K.placeholder(shape=(None,self.n_acts_module),name="pol_1")
+        pol_2 = K.placeholder(shape=(None,self.n_acts_module),name="pol_2")
+        actions = K.placeholder(shape=(None,self.n_acts_module),name="actions")
 
         lambdas = self.actor_model.output
         loss = -tf.reshape(q_arb,[-1]) * tf.log(lambdas[:,0]*tf.reduce_sum(pol_1*actions, axis = 1) +
@@ -81,6 +97,7 @@ class PolMixModule:
         adam = Adam(lr=self.alpha_actor)
         updates = adam.get_updates(params=self.actor_model.trainable_weights, loss=loss)
 
+        # self.train_fn = K.function(inputs=[self.actor_model.input, actions, q_arb, pol_1, pol_2], outputs=[], updates=updates)
         self.train_fn = K.function(inputs=[self.actor_model.input, actions, q_arb, pol_1, pol_2], outputs=[], updates=updates)
 
 
@@ -90,7 +107,6 @@ class PolMixModule:
         h2 = Dense(128, activation='relu')(h1)
         # output = Dense(self.nb_actions, activation='tanh')(h3)
         output = Dense(self.n_acts, activation='softmax')(h2)
-
         model = Model(input=state_input, output=output)
         
         return state_input, model
@@ -171,7 +187,7 @@ class PolMixModule:
         return current_states, actions, rewards, new_states, dones, pi1, pi2
 
 
-    def getAction(self, state):
+    def get_action(self, state):
         action = self.actor_model.predict(state)
         return action
 
@@ -198,10 +214,10 @@ class PolMixAgent:
         return action
     
 
-    def update(self, state, action, nextState, reward):
+    def update(self, state, action, nextState, reward, epi_so_far):
         done = 1 if abs(reward) > 100 else 0
 
-        if self.episodesSoFar % self.batch_size == 0:
+        if epi_so_far % self.batch_size == 0:
             self.arbitrator.update()
         else:
             self.arbitrator.add_to_onpolicy_buffer(state, action, reward, nextState, done, 

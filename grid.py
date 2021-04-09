@@ -32,7 +32,7 @@ class GridEnv(gym.Env):
 
     def get_reward(self, new_state):        
         if new_state == self.goal:
-            return 100
+            return 10
         else:
             return 0
     
