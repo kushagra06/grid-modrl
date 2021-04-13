@@ -46,7 +46,7 @@ class QModule:
 
     def _softmax(x):
         e_x = np.exp(x - np.max(x))
-        return e_x / e_x.sum()
+        return e_x / np.sum(e_x)
 
 
 class PolMixModule:

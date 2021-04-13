@@ -34,7 +34,7 @@ class GridEnv(gym.Env):
         if new_state == self.goal:
             return 10
         else:
-            return 0
+            return 1
     
     def step(self, a):
         prev_state = self.cur_state
