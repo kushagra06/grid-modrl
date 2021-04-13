@@ -51,9 +51,11 @@ def test_arb(arb_agent, n_epi=500, max_steps=50, learn=True):
             if epi%8 == 0:
                 arb_agent.update()
             else:
-                pi1 = tf.convert_to_tensor(np.random.choice(4, size=1))
-                pi2 = tf.convert_to_tensor(np.random.choice(4, size=1))
-                arb_agent.add_to_onpolicy_buffer(prev_state, a, r, arb_agent.cur_state, done, pi1, pi2)
+                x = np.random.rand(4)
+                pi = x/np.sum(x)
+                # pi1 = tf.convert_to_tensor(pi)
+                # pi2 = tf.convert_to_tensor(pi)
+                arb_agent.add_to_onpolicy_buffer(prev_state, a, r, arb_agent.cur_state, done, pi, pi)
 
             cumulative_r += r
             step += 1
@@ -67,23 +69,23 @@ def test_arb(arb_agent, n_epi=500, max_steps=50, learn=True):
 
 def main():
     env1 = GridEnv(goal=15)
-    # env2 = GridEnv(goal=12)
-    agent1 = QModule(env1)
-    # # agent2 = QModule(env2)
-    returns1 = run(agent1)
-    # # returns2 = run(agent2)
-    # np.save('m1', agent1.q)
-    print(agent1.q)
-    # # np.save('m2', agent2.q)
-    plt.plot(returns1)
-    plt.show()
+    env2 = GridEnv(goal=12)
+    # agent1 = QModule(env1)
+    # # # agent2 = QModule(env2)
+    # returns1 = run(agent1)
+    # # # returns2 = run(agent2)
+    # # np.save('m1', agent1.q)
+    # print(agent1.q)
+    # # # np.save('m2', agent2.q)
+    # plt.plot(returns1)
+    # plt.show()
     # plt.plot(returns2)
     # plt.show()
 
-    # pol_mix_agent = PolMixAgent(env1, env2)
-    # arb_agent = PolMixModule(env1)
-    # arb_returns = test_arb(arb_agent)
-    # print(arb_returns)
+    pol_mix_agent = PolMixAgent(env1, env2)
+    arb_agent = PolMixModule(env1)
+    arb_returns = test_arb(arb_agent)
+    print(arb_returns)
 
 
 

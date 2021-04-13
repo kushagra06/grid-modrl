@@ -1,15 +1,19 @@
 import numpy as np
+import tensorflow as tf
 from keras.models import Sequential, Model
 from keras.layers.core import Dense, Dropout, Activation
 from keras.layers import Input
 from keras.optimizers import RMSprop, Adam
 from keras.layers.merge import Add, Concatenate
 import keras.backend as K
-import tensorflow as tf
+
 
 # from grid import GridModule
 
 config = tf.compat.v1.ConfigProto(device_count = {'GPU':0, 'CPU': 6} ) 
+
+# class TabArb:
+#     def __init__(self, env, gamma=0.9)
 
 class QModule:
     def __init__(self, env, eps=0.3, alpha=0.1, gamma=0.9):
@@ -46,7 +50,7 @@ class QModule:
 
 
 class PolMixModule:
-    def __init__(self, env, n_acts=2, eps=0., alpha=0.1, gamma=1.):
+    def __init__(self, env, n_acts=2, eps=0., alpha=0.1, gamma=0.9):
         self.sess = tf.Session(config=config)
         K.set_session(self.sess)
         self.env = env
@@ -70,7 +74,8 @@ class PolMixModule:
         self.critic_in, self.critic_model = self.create_critic()
         _, self.target_critic_model = self.create_critic()
 
-        self._actor_train_fn()
+        # self._actor_train_fn()
+        self.train_actor = self._actor_train_fn()
         self.onpolicy_buffer = []
 
         self.sess.run(tf.compat.v1.initialize_all_variables())
@@ -94,11 +99,15 @@ class PolMixModule:
         loss = -tf.reshape(q_arb,[-1]) * tf.log(lambdas[:,0]*tf.reduce_sum(pol_1*actions, axis = 1) +
                                                 lambdas[:,1]*tf.reduce_sum(pol_2*actions, axis = 1) + 0.00001)
         loss = tf.reduce_sum(loss)
-        adam = Adam(lr=self.alpha_actor)
-        updates = adam.get_updates(params=self.actor_model.trainable_weights, loss=loss)
+        params_grad = tf.gradients(lambdas, self.actor_model.trainable_weights)
+        grads = zip(params_grad, self.actor_model.trainable_weights)
+
+        return K.function([self.actor_model.input, actions, q_arb, pol_1, pol_2], [tf.train.AdamOptimizer(self.alpha_actor).apply_gradients(grads)])
+        
+        # adam = Adam(lr=self.alpha_actor)
+        # updates = adam.get_updates(params=self.actor_model.trainable_weights, loss=loss)
 
         # self.train_fn = K.function(inputs=[self.actor_model.input, actions, q_arb, pol_1, pol_2], outputs=[], updates=updates)
-        self.train_fn = K.function(inputs=[self.actor_model.input, actions, q_arb, pol_1, pol_2], outputs=[], updates=updates)
 
 
     def create_actor(self):
@@ -139,11 +148,12 @@ class PolMixModule:
  
     def _train_actor(self, samples):
         cur_states, actions, rewards, new_states, dones, pi1, pi2 = self.get_attributes_from_sample(samples)
+        # print("cur_states, actions, rewards, new_states, dones, pi1, pi2: ", cur_states, actions, rewards, new_states, dones, pi1, pi2)
         V_next = self.critic_model.predict(new_states) ## target model??
         V_curr = self.critic_model.predict(cur_states)
         predicted_q = rewards + self.gamma * V_next * (1-dones) - V_curr
         
-        self.train_fn([cur_states, actions, predicted_q, pi1, pi2])
+        self.train_actor([cur_states, actions, predicted_q, pi1, pi2])
 
 
     def _train_critic(self, samples):
@@ -183,7 +193,7 @@ class PolMixModule:
         dones = np.stack(array[:,4]).reshape((array.shape[0],-1))
         pi1 = np.stack(array[:,5]).reshape((array.shape[0],-1))
         pi2 = np.stack(array[:,6]).reshape((array.shape[0],-1))
-
+        
         return current_states, actions, rewards, new_states, dones, pi1, pi2
 
 
