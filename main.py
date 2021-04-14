@@ -228,14 +228,14 @@ def test_tab_arb(q1, q2, n_epi=20, max_steps=500, learn=True):
             pi_k, a_env = sample_pi(pi_k, env1.cur_state)
             s1, a1, s1_, r1, done1 = env1.step(a_env) # module1 and arb same
             # s2, a2, s_2, r2, done2 = env2.step(a_env)
-            # if s1==s1_ and s1==env1.goal:
-            #     r1 = 10
-            # else:
-            #     r1 = 1
+            if s1==s1_ and s1==env1.goal:
+                r1 = 10
+            else:
+                r1 = 1
             
             if done1:
                 epi_over = True
-                r1 = 10
+                # r1 = 10
 
             cumulative_r += r1
             step += 1
