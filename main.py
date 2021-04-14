@@ -68,7 +68,6 @@ def test_arb(arb_agent, n_epi=500, max_steps=50, learn=True):
     return returns
 
 
-
 def softmax(x):
     e_x = np.exp(x - np.max(x))
     return e_x / np.sum(e_x)
@@ -114,7 +113,7 @@ def get_occupancy_measure(pi_k, gamma=0.9):
 
 
 def get_constraints_matrix(total_vars, total_constraints):
-    A = np.empty((total_constraints, total_vars))
+    A = np.zeros((total_constraints, total_vars))
     j = 0
     for i in range(total_constraints):
         A[i][j] = 1
@@ -147,11 +146,11 @@ def arb_loss(coeff, d_sa, q_k, pi1_k, pi2_k):
 def solve_coeff(coeff1, coeff2, q_k, dsa_k, pi1_k, pi2_k):
     total_variables = env1.observation_space.n * 2
     constr = {'type':'eq', 'fun':coeff_constr}
-    bnds = [(0+1e-8, 1+1e-8)] * total_variables
+    bnds = [(0, 1+1e-8)] * total_variables
 
     f0 = np.concatenate((coeff1,coeff2))
 
-    res = optimize.minimize(arb_loss, x0=f0, args=(dsa_k, q_k, pi1_k, pi2_k), method='SLSQP', constraints=constr, options={'disp':False})
+    res = optimize.minimize(arb_loss, x0=f0, args=(dsa_k, q_k, pi1_k, pi2_k), method='SLSQP', constraints=constr, bounds=bnds, options={'disp':False})
     obj_val = arb_loss(res.x, dsa_k, q_k, pi1_k, pi2_k)
     # print(obj_val)
     return res.x
@@ -200,9 +199,9 @@ def optimize_pi(pi_k, pi1_k, pi2_k, coeff1, coeff2):
     return coeff[:total_states], coeff[total_states:]
 
 
-def test_tab_arb(q1, q2, n_epi=500, max_steps=200, learn=True):
+def test_tab_arb(q1, q2, n_epi=60, max_steps=100, learn=True):
     returns = []
-    coeff1, coeff2 = np.full(env1.observation_space.n, 0.5), np.full(env2.observation_space.n, 0.5)
+    coeff1, coeff2 = np.full(env1.observation_space.n, 0.5), np.full(env1.observation_space.n, 0.5)
     for epi in range(n_epi):
         cumulative_r = 0
         step = 0
@@ -210,7 +209,7 @@ def test_tab_arb(q1, q2, n_epi=500, max_steps=200, learn=True):
         env1.reset()
         while (step < max_steps):
             pi1_k, pi2_k = get_pi(q1), get_pi(q2)
-            pi_k = coeff1[env1.cur_state] * pi1_k + coeff2[env2.cur_state] * pi2_k
+            pi_k = coeff1[env1.cur_state] * pi1_k + coeff2[env1.cur_state] * pi2_k
             pi_k, a_env = sample_pi(pi_k, env1.cur_state)
             s1, a1, s_1, r1, done1 = env1.step(a_env) #module1 and arb
             s2, a2, s_2, r2, done2 = env2.step(a_env)
@@ -218,8 +217,12 @@ def test_tab_arb(q1, q2, n_epi=500, max_steps=200, learn=True):
             cumulative_r += r1
             step += 1
 
+        print("epi {}".format(epi))
+        print("coeff1: ", coeff1)
+        print("\n")
+
         returns.append(cumulative_r)
-    
+
     return returns
 
 
