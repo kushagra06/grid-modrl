@@ -77,6 +77,14 @@ def softmax(x):
     e_x = np.exp(x - np.max(x))
     return e_x / np.sum(e_x)
 
+def get_greedy_pi(q):
+    pi = np.zeros([env1.observation_space.n, env1.action_space.n])
+    for s in range(env1.observation_space.n):
+        a = np.argmax(q[s])
+        pi[s,a] = 1
+    
+    return pi
+
 def get_pi(q):
     pi = []
     for s in range(env1.observation_space.n):
@@ -201,13 +209,14 @@ def optimize_pi(pi_k, pi1_k, pi2_k, coeff1, coeff2):
     coeff = np.concatenate((coeff1, coeff2))
     obj_val = arb_loss(coeff, d_sa, q_k, pi1_k, pi2_k)
     coeff = solve_coeff(coeff1, coeff2, q_k, d_sa, pi1_k, pi2_k)
+    
     return coeff[:total_states], coeff[total_states:]
 
 
 def test_tab_arb(q1, q2, n_epi=200, max_steps=500, learn=True):
     returns = []
     coeff1, coeff2 = np.full(env1.observation_space.n, 0.5), np.full(env1.observation_space.n, 0.5)
-    pi1_k, pi2_k = get_pi(q1), get_pi(q2)
+    pi1_k, pi2_k = get_greedy_pi(q1), get_greedy_pi(q2)
     for epi in range(n_epi):
         cumulative_r = 0
         step = 0
@@ -237,8 +246,8 @@ def test_tab_arb(q1, q2, n_epi=200, max_steps=500, learn=True):
             print("Done: {}, cumulative_r: {}, coeff1: {}\n".format(epi, cumulative_r, coeff1))
         returns.append(cumulative_r)
 
-    np.save('coeff1', coeff1)
-    np.save('coeff2', coeff2)
+    np.save('coeff1_greedy', coeff1)
+    np.save('coeff2_greedy', coeff2)
     return returns
 
 
@@ -264,13 +273,13 @@ def main():
 
     q1 = np.load('m1_q1.npy')
     q2 = np.load('m2_q2.npy')
-    # tab_arb_returns = test_tab_arb(q1, q2)
-    # plt.plot(tab_arb_returns)
-    # plt.show()
-    pi1 = get_pi(q1)
-    pi2 = get_pi(q2)
-    coeff1 = np.load('coeff1.npy')
-    coeff2 = np.load('coeff2.npy')
+    tab_arb_returns = test_tab_arb(q1, q2)
+    plt.plot(tab_arb_returns)
+    plt.show()
+    pi1 = get_greedy_pi(q1)
+    pi2 = get_greedy_pi(q2)
+    coeff1 = np.load('coeff1_greedy.npy')
+    coeff2 = np.load('coeff2_greedy.npy')
 
     print("pi1")
     print(pi1)
@@ -280,15 +289,16 @@ def main():
     print(pi2)
     print("\n")
 
+    np.set_printoptions(precision=2, suppress=True)
     pi_arb = np.empty((16, 4))
     for s in range(16):
         pi_arb[s] = coeff1[s]*pi1[s] + coeff2[s]*pi2[s]
     print("pi_arb")
     print(pi_arb)
 
-    np.save('m1_pi', pi1)
-    np.save('m2_pi', pi2)
-    np.save('pi_arb', pi_arb)
+    np.save('m1_pi_greedy', pi1)
+    np.save('m2_pi_greedy', pi2)
+    np.save('pi_arb_greedy', pi_arb)
 
 if __name__ == "__main__":
     env1 = GridEnv(goal=15)
