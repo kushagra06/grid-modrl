@@ -17,7 +17,7 @@ class GridEnv(gym.Env):
         self.P = np.zeros((self.action_space.n, self.observation_space.n, self.observation_space.n))
         # self.P[:, 0, 0] = 1
 
-        for s in self.gridworld.flat[:]:
+        for s in self.gridworld.flat[:-1]:
             r, c = np.argwhere(self.gridworld == s)[0]
             for a, d in self.action_dict.items():
                 next_r = max(0, min(r+d[0], 3))
@@ -25,17 +25,20 @@ class GridEnv(gym.Env):
                 next_s = self.gridworld[next_r, next_c]
                 self.P[a,s,next_s] = 1
         
+        
         self.R = np.full((self.action_space.n, self.observation_space.n), -1)
         self.R[:,0] = 0
         self.goal = goal
+        self.P[:,self.goal,self.goal] = 1
 
         self.cur_state = 0
 
-    def get_reward(self, new_state):        
-        if new_state == self.goal:
-            return 10
-        else:
-            return 1
+    def get_reward(self, new_state):
+        return 1        
+        # if new_state == self.goal:
+        #     return 10
+        # else:
+        #     return 1
     
     def step(self, a):
         prev_state = self.cur_state

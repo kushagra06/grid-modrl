@@ -1,35 +1,40 @@
 import numpy as np
 from scipy import optimize 
 from grid import GridEnv
-# from gridAgents import PolMixAgent, QModule, PolMixModule
-# import matplotlib.pyplot as plt
-# import tensorflow as tf
+from gridAgents import PolMixAgent, QModule, PolMixModule
+import matplotlib.pyplot as plt
+import tensorflow as tf
 
 
 def run(agent, n_epi=500, max_steps=500, learn=True):
     returns = []
 
     for epi in range(n_epi):
+        path = [0]
         cumulative_r = 0
         step = 0
         epi_over = False
         agent.env.reset()
         # while (not epi_over) and (step < max_steps):
-        while step < max_steps:
+        while (not epi_over) and (step < max_steps):
             a = agent.get_action(agent.env.cur_state)
             s, a, new_s, r, done = agent.env.step(a)
+    
+            path.append(new_s)
 
             if learn == True:
                 agent.update(s, a, new_s, r)
             
             cumulative_r += r
             step += 1
+            
+            if done == 1:
+                epi_over = True
 
-            # if done:
-            #     epi_over = False
-    
+          
+        agent.eps *= 0.99
         returns.append(cumulative_r)
-
+        print(path)
     return returns
 
 
@@ -81,10 +86,10 @@ def get_pi(q):
     return np.asarray(pi)
 
 def sample_pi(pi, cur_state):
-    new_pi = np.empty((env1.observation_space.n, env1.action_space.n))
-    for s in range(env1.observation_space.n):
-        new_pi[s] = pi[s]/np.sum(pi[s])
-
+    # new_pi = np.empty((env1.observation_space.n, env1.action_space.n))
+    # for s in range(env1.observation_space.n):
+    #     new_pi[s] = pi[s]/np.sum(pi[s])
+    new_pi = pi
     return new_pi, np.random.choice(4, p=new_pi[cur_state])
 
 def get_occupancy_measure(pi_k, gamma=0.9):
@@ -175,11 +180,11 @@ def get_q(pi_k, gamma=0.9):
         for a in range(total_actions):
             val = 0
             for s_ in range(total_states):
-                if s_ == env1.goal:
+                if s == s_ and s == env1.goal:
                     r = 10
                 else:
                     r = 1
-                val += env1.P[(a,s,s_)] * r
+                val += env1.P[(a,s,s_)] * r ## reward signal for the arb = global r
             R.append(val)  
 
     R = np.asarray(R).reshape((total_states*total_actions, 1))
@@ -199,30 +204,41 @@ def optimize_pi(pi_k, pi1_k, pi2_k, coeff1, coeff2):
     return coeff[:total_states], coeff[total_states:]
 
 
-def test_tab_arb(q1, q2, n_epi=60, max_steps=100, learn=True):
+def test_tab_arb(q1, q2, n_epi=200, max_steps=500, learn=True):
     returns = []
     coeff1, coeff2 = np.full(env1.observation_space.n, 0.5), np.full(env1.observation_space.n, 0.5)
+    pi1_k, pi2_k = get_pi(q1), get_pi(q2)
     for epi in range(n_epi):
         cumulative_r = 0
         step = 0
         epi_over = False
         env1.reset()
-        while (step < max_steps):
-            pi1_k, pi2_k = get_pi(q1), get_pi(q2)
+        env2.reset()
+        while (not epi_over) and (step < max_steps):
             pi_k = coeff1[env1.cur_state] * pi1_k + coeff2[env1.cur_state] * pi2_k
             pi_k, a_env = sample_pi(pi_k, env1.cur_state)
-            s1, a1, s_1, r1, done1 = env1.step(a_env) #module1 and arb
-            s2, a2, s_2, r2, done2 = env2.step(a_env)
+            s1, a1, s1_, r1, done1 = env1.step(a_env) # module1 and arb same
+            # s2, a2, s_2, r2, done2 = env2.step(a_env)
+            # if s1==s1_ and s1==env1.goal:
+            #     r1 = 10
+            # else:
+            #     r1 = 1
+            
             coeff1, coeff2 = optimize_pi(pi_k, pi1_k, pi2_k, coeff1, coeff2)
+
+            if done1:
+                epi_over = True
+                r1 = 10
+
             cumulative_r += r1
             step += 1
-
-        print("epi {}".format(epi))
-        print("coeff1: ", coeff1)
-        print("\n")
-
+        
+        if epi%10 == 0:
+            print("Done: {}, cumulative_r: {}, coeff1: {}\n".format(epi, cumulative_r, coeff1))
         returns.append(cumulative_r)
 
+    np.save('coeff1', coeff1)
+    np.save('coeff2', coeff2)
     return returns
 
 
@@ -248,10 +264,40 @@ def main():
 
     q1 = np.load('m1_q1.npy')
     q2 = np.load('m2_q2.npy')
-    tab_arb_returns = test_tab_arb(q1, q2)
+    # tab_arb_returns = test_tab_arb(q1, q2)
+    # plt.plot(tab_arb_returns)
+    # plt.show()
+    pi1 = get_pi(q1)
+    pi2 = get_pi(q2)
+    coeff1 = np.load('coeff1.npy')
+    coeff2 = np.load('coeff2.npy')
 
+    print("pi1")
+    print(pi1)
+    print("\n")
+
+    print("pi2")
+    print(pi2)
+    print("\n")
+
+    pi_arb = np.empty((16, 4))
+    for s in range(16):
+        pi_arb[s] = coeff1[s]*pi1[s] + coeff2[s]*pi2[s]
+    print("pi_arb")
+    print(pi_arb)
+
+    np.save('m1_pi', pi1)
+    np.save('m2_pi', pi2)
+    np.save('pi_arb', pi_arb)
 
 if __name__ == "__main__":
     env1 = GridEnv(goal=15)
     env2 = GridEnv(goal=12)
     main()
+
+
+## Notes ##
+# Beware of numerical errors while initializing np arrays
+# Use np arrays everywhere (instead of lists)
+# Values inside log
+# Bounds should be properly set
