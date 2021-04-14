@@ -147,7 +147,7 @@ def arb_loss(coeff, d_sa, q_k, pi1_k, pi2_k):
     total_actions = env1.action_space.n
     loss = 0.
     for s in range(total_states):
-        coeff1_s, coeff2_s = coeff[env1.cur_state], coeff[env1.cur_state+total_states]
+        coeff1_s, coeff2_s = coeff[s], coeff[s+total_states]
         for a in range(total_actions):
             pi_arb = coeff1_s*pi1_k[s,a] + coeff2_s*pi2_k[s,a]
             logpi_arb = 0 if (pi_arb<=0 or np.isinf(pi_arb) or np.isnan(pi_arb)) else np.log(pi_arb)
@@ -213,7 +213,7 @@ def optimize_pi(pi_k, pi1_k, pi2_k, coeff1, coeff2):
     return coeff[:total_states], coeff[total_states:]
 
 
-def test_tab_arb(q1, q2, n_epi=200, max_steps=500, learn=True):
+def test_tab_arb(q1, q2, n_epi=20, max_steps=500, learn=True):
     returns = []
     coeff1, coeff2 = np.full(env1.observation_space.n, 0.5), np.full(env1.observation_space.n, 0.5)
     pi1_k, pi2_k = get_greedy_pi(q1), get_greedy_pi(q2)
@@ -233,8 +233,6 @@ def test_tab_arb(q1, q2, n_epi=200, max_steps=500, learn=True):
             # else:
             #     r1 = 1
             
-            coeff1, coeff2 = optimize_pi(pi_k, pi1_k, pi2_k, coeff1, coeff2)
-
             if done1:
                 epi_over = True
                 r1 = 10
@@ -242,8 +240,10 @@ def test_tab_arb(q1, q2, n_epi=200, max_steps=500, learn=True):
             cumulative_r += r1
             step += 1
         
-        if epi%10 == 0:
-            print("Done: {}, cumulative_r: {}, coeff1: {}\n".format(epi, cumulative_r, coeff1))
+        coeff1, coeff2 = optimize_pi(pi_k, pi1_k, pi2_k, coeff1, coeff2)
+        
+        # if epi%10 == 0:
+        print("Done: {}, cumulative_r: {}, coeff1: {}\n".format(epi, cumulative_r, coeff1))
         returns.append(cumulative_r)
 
     np.save('coeff1_greedy', coeff1)
