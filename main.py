@@ -1,9 +1,9 @@
-import numpy as np 
-import gym
+import numpy as np
+from scipy import optimize 
 from grid import GridEnv
-from gridAgents import PolMixAgent, QModule, PolMixModule
-import matplotlib.pyplot as plt
-import tensorflow as tf
+# from gridAgents import PolMixAgent, QModule, PolMixModule
+# import matplotlib.pyplot as plt
+# import tensorflow as tf
 
 
 def run(agent, n_epi=500, max_steps=500, learn=True):
@@ -67,9 +67,30 @@ def test_arb(arb_agent, n_epi=500, max_steps=50, learn=True):
     
     return returns
 
+
+
+def softmax(x):
+    e_x = np.exp(x - np.max(x))
+    return e_x / np.sum(e_x)
+
+def get_pi(q):
+    pi = []
+    for s in range(env1.observation_space.n):
+        pi_s = softmax(q[s])
+        pi.append(pi_s)
+
+    return np.asarray(pi)
+
+def sample_pi(pi, cur_state):
+    new_pi = np.empty((env1.observation_space.n, env1.action_space.n))
+    for s in range(env1.observation_space.n):
+        new_pi[s] = pi[s]/np.sum(pi[s])
+
+    return new_pi, np.random.choice(4, p=new_pi[cur_state])
+
 def get_occupancy_measure(pi_k, gamma=0.9):
-	total_states = env.observation_space.n
-	total_actions = env.action_space.n
+	total_states = env1.observation_space.n
+	total_actions = env1.action_space.n
 	b0 = np.ones(total_states) / total_states
 	c = np.zeros(total_states)
 	t_mat = np.zeros([total_states, total_states])
@@ -77,7 +98,7 @@ def get_occupancy_measure(pi_k, gamma=0.9):
 		for s in range(total_states):
 			val = 0
 			for a in range(total_actions):
-				val += env.P[a,s,j] * pi_k[s,a]
+				val += env1.P[a,s,j] * pi_k[s,a]
 			c[s] = val
 		t_mat[j] = c
 	I = np.eye(total_states)
@@ -92,48 +113,114 @@ def get_occupancy_measure(pi_k, gamma=0.9):
 	return x, x_sa
 
 
-def solve_coeff(q_k, dsa_k, pi1_k, pi2_k):
-    constr = {'type':'eq', 'fun':lambda_constr}
-	bnds = [(0+1e-8, 1+1e-8)] * total_states
+def get_constraints_matrix(total_vars, total_constraints):
+    A = np.empty((total_constraints, total_vars))
+    j = 0
+    for i in range(total_constraints):
+        A[i][j] = 1
+        A[i][j+total_constraints] = 1
+        j += 1
     
-    res = optimize.minimize(pol_loss, x0=coeff0, args=(d_sa, q_k, pi1_k, pi2_k), method='SLSQP', constraints=constr, bounds=bnds, 
-                            options={'disp':False})
-	
-	obj_val = pol_loss(res.x, pi_k, q_k, ds_k, dsa_k)
+    return A
 
-	new_pi = np.reshape(res.x, (total_states, total_actions))
+def coeff_constr(coeff):
+    total_constraints = env1.observation_space.n 
+    total_vars = env1.observation_space.n * 2
+    b = np.ones(total_constraints)
+    A = get_constraints_matrix(total_vars, total_constraints)
+    return (A.dot(coeff)-b)
 
-	return new_pi, obj_val
+def arb_loss(coeff, d_sa, q_k, pi1_k, pi2_k):
+    total_states = env1.observation_space.n
+    total_actions = env1.action_space.n
+    loss = 0.
+    for s in range(total_states):
+        coeff1_s, coeff2_s = coeff[env1.cur_state], coeff[env1.cur_state+total_states]
+        for a in range(total_actions):
+            pi_arb = coeff1_s*pi1_k[s,a] + coeff2_s*pi2_k[s,a]
+            logpi_arb = 0 if (pi_arb<=0 or np.isinf(pi_arb) or np.isnan(pi_arb)) else np.log(pi_arb)
+            loss += d_sa[s,a] * q_k[s,a] * logpi_arb
+    
+    return -loss
 
-def optimize_pi(pi_k, pi1_k, pi2_k):
+
+def solve_coeff(coeff1, coeff2, q_k, dsa_k, pi1_k, pi2_k):
+    total_variables = env1.observation_space.n * 2
+    constr = {'type':'eq', 'fun':coeff_constr}
+    bnds = [(0+1e-8, 1+1e-8)] * total_variables
+
+    f0 = np.concatenate((coeff1,coeff2))
+
+    res = optimize.minimize(arb_loss, x0=f0, args=(dsa_k, q_k, pi1_k, pi2_k), method='SLSQP', constraints=constr, options={'disp':False})
+    obj_val = arb_loss(res.x, dsa_k, q_k, pi1_k, pi2_k)
+    # print(obj_val)
+    return res.x
+
+def get_q(pi_k, gamma=0.9):
+    total_states = env1.observation_space.n
+    total_actions = env1.action_space.n
+
+    coeffients = []
+    for s in range(total_states):
+        for a in range(total_actions):
+            for s_ in range(total_states):
+                for a_ in range(total_actions):
+                    coeffients.append(env1.P[(a,s,s_)] * pi_k[s_,a_])
+
+    I = np.eye(total_states*total_actions, total_states*total_actions)
+
+    A = I - gamma * np.asarray(coeffients).reshape((total_states*total_actions, total_states*total_actions))
+
+    R = []
+    for s in range(total_states):
+        for a in range(total_actions):
+            val = 0
+            for s_ in range(total_states):
+                if s_ == env1.goal:
+                    r = 10
+                else:
+                    r = 1
+                val += env1.P[(a,s,s_)] * r
+            R.append(val)  
+
+    R = np.asarray(R).reshape((total_states*total_actions, 1))
+    x = np.linalg.solve(A, R)
+    x = np.asarray(x).reshape((total_states, total_actions))
+
+    return x
+
+
+def optimize_pi(pi_k, pi1_k, pi2_k, coeff1, coeff2):
+    total_states = env1.observation_space.n
     q_k = get_q(pi_k)
     d_s, d_sa = get_occupancy_measure(pi_k)
-    coeff = solve_coeff(q_k, d_sa, pi1_k, pi2_k)
+    coeff = np.concatenate((coeff1, coeff2))
+    obj_val = arb_loss(coeff, d_sa, q_k, pi1_k, pi2_k)
+    coeff = solve_coeff(coeff1, coeff2, q_k, d_sa, pi1_k, pi2_k)
+    return coeff[:total_states], coeff[total_states:]
 
-def test_tab_arb(env1, env2, q1, q2, n_epi=500, max_steps=200, learn=True):
+
+def test_tab_arb(q1, q2, n_epi=500, max_steps=200, learn=True):
     returns = []
-    
+    coeff1, coeff2 = np.full(env1.observation_space.n, 0.5), np.full(env2.observation_space.n, 0.5)
     for epi in range(n_epi):
         cumulative_r = 0
         step = 0
         epi_over = False
         env1.reset()
         while (step < max_steps):
-            pi1_k, pi2_k = get_pi(q1[env1.cur_state]), get_pi(q2[env2.cur_state])
+            pi1_k, pi2_k = get_pi(q1), get_pi(q2)
             pi_k = coeff1[env1.cur_state] * pi1_k + coeff2[env2.cur_state] * pi2_k
-            a_env = sample_pi(pi_k)
+            pi_k, a_env = sample_pi(pi_k, env1.cur_state)
             s1, a1, s_1, r1, done1 = env1.step(a_env) #module1 and arb
             s2, a2, s_2, r2, done2 = env2.step(a_env)
-            coeff1, coeff2 = optimize_pi(pi_k, pi1_k, pi2_k)
-
+            coeff1, coeff2 = optimize_pi(pi_k, pi1_k, pi2_k, coeff1, coeff2)
             cumulative_r += r1
             step += 1
 
         returns.append(cumulative_r)
     
     return returns
-
-
 
 
 def main():

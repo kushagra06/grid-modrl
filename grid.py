@@ -8,20 +8,21 @@ class GridEnv(gym.Env):
     action_space = spaces.Discrete(4)
     observation_space = spaces.Discrete(grid_size * grid_size)
     #left, up, right, down
-    action_dict = {0:(-1,0), 1:(0,1), 2:(1,0), 3:(0,-1)}
+    #(r,c) 
+    action_dict = {0:(0,-1), 1:(-1,0), 2:(0,1), 3:(1,0)}
 
     def __init__(self, goal=15):
         self.gridworld = np.arange(self.observation_space.n).reshape(4,4)
         # P[a,s,s']
         self.P = np.zeros((self.action_space.n, self.observation_space.n, self.observation_space.n))
-        self.P[:, 0, 0] = 1
+        # self.P[:, 0, 0] = 1
 
-        for s in self.gridworld.flat[1:-1]:
+        for s in self.gridworld.flat[:]:
             r, c = np.argwhere(self.gridworld == s)[0]
             for a, d in self.action_dict.items():
                 next_r = max(0, min(r+d[0], 3))
                 next_c = max(0, min(c+d[1], 3))
-                next_s = self.gridworld[r,c]
+                next_s = self.gridworld[next_r, next_c]
                 self.P[a,s,next_s] = 1
         
         self.R = np.full((self.action_space.n, self.observation_space.n), -1)
