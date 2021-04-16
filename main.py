@@ -130,8 +130,7 @@ def get_constraints_matrix(total_vars, total_constraints):
     A = np.zeros((total_constraints, total_vars))
     for i in range(total_constraints):
         for m in range(total_modules):
-            A[i][i+m*total_constraints]
-    
+            A[i][i+m*total_constraints] = 1
     return A
 
 def coeff_constr(coeff):
@@ -142,35 +141,29 @@ def coeff_constr(coeff):
     return (A.dot(coeff)-b)
 
 def arb_loss(coeff, dsa_k, q_k, pi_array):
+    total_variables = env1.observation_space.n * total_modules
     total_states = env1.observation_space.n
     total_actions = env1.action_space.n
     loss = 0.
     coeff_s = np.zeros(total_modules)
-    for s in range(total_states):
-        
+    
+    for s in range(total_states):       
         i = 0
-        for m in range(total_modules):
-            coeff_s[m] = coeff[s+i]
-            i += total_states
-
+        indices = list(range(s,total_variables-total_states+s+1, total_states))
         for a in range(total_actions):
-            pi_arb = 0.
-            for m in range(total_modules):
-                pi_arb += coeff_s[m] * pi_array[m,s,a]
+            pi_arb = np.sum(coeff[indices] * pi_array[:,s,a])
             logpi_arb = 0 if (pi_arb<=0 or np.isinf(pi_arb) or np.isnan(pi_arb)) else np.log(pi_arb)
             loss += dsa_k[s,a] * q_k[s,a] * logpi_arb
-    
     return -loss
 
 
 def solve_coeff(coeff, q_k, dsa_k, pi_array):
     total_variables = env1.observation_space.n * total_modules
     constr = {'type':'eq', 'fun':coeff_constr}
-    bnds = [(0, 1+1e-8)] * total_variables
+    bnds = [(0., 1)] * total_variables
 
-    f0 = np.concatenate(coeff)
-
-    res = optimize.minimize(arb_loss, x0=f0, args=(dsa_k, q_k, pi_array), method='SLSQP', constraints=constr, bounds=bnds, options={'disp':False})
+    init_guess = np.concatenate(coeff)
+    res = optimize.minimize(arb_loss, x0=init_guess, args=(dsa_k, q_k, pi_array), method='SLSQP', constraints=constr, bounds=bnds, options={'disp':False})
     # obj_val = arb_loss(res.x, dsa_k, q_k, pi_array)
     
     return res.x
@@ -221,7 +214,7 @@ def get_init_coeff(total_modules):
     coeff = np.full((total_modules, env1.observation_space.n,), fill_value=1./total_modules)
     return coeff
 
-def test_tab_arb(q_list, n_epi=50, max_steps=500, learn=True):
+def test_tab_arb(q_list, n_epi=1, max_steps=500, learn=True):
     returns = []
     coeff = get_init_coeff(total_modules)
     pi_array = get_pi(q_list, total_modules)
@@ -236,6 +229,7 @@ def test_tab_arb(q_list, n_epi=50, max_steps=500, learn=True):
         for i in range(total_modules):
             pi_k += coeff[i][env1.cur_state] * pi_array[i]
 
+        # run an episode with pi_k
         while (not epi_over) and (step < max_steps):
             a_env = np.random.choice(4, p=pi_k[env1.cur_state]) # sample from pi_k
             s1, a1, s1_, r1, done1 = env1.step(a_env) # module1 and arb same
@@ -303,7 +297,7 @@ def main():
     q2 = np.load('m2_q2.npy')
     q3 = np.load('m3_q3.npy')
     q4 = np.load('m4_q4.npy')
-    tab_arb_returns = test_tab_arb([q1, q2, q3, q4])
+    tab_arb_returns = test_tab_arb([q1, q2])
     plt.plot(tab_arb_returns)
     plt.show()
     # pi1 = get_pi(q1)
@@ -346,7 +340,7 @@ if __name__ == "__main__":
     env2 = GridEnv(goal=12)
     env3 = GridEnv(goal=3)
     env4 = GridEnv(goal=9)
-    env_list = [env1, env2, env3, env4]
+    env_list = [env1, env2]#, env3]#, env4]
     total_modules = len(env_list)
     main()
 
