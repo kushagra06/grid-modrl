@@ -4,7 +4,7 @@ from grid import GridEnv
 from gridAgents import PolMixAgent, QModule, PolMixModule
 import matplotlib.pyplot as plt
 import tensorflow as tf
-from columnar import columnar
+# from columnar import columnar
 
 
 def run(agent, n_epi=500, max_steps=500, learn=True):
@@ -149,7 +149,8 @@ def arb_loss(coeff, dsa_k, q_k, pi_array):
     
     for s in range(total_states):       
         i = 0
-        indices = list(range(s,total_variables-total_states+s+1, total_states))
+        ## e.g. for 4 modules, for s=0, indices=[0,16,32,48] -> 0 to 48 in steps of 16
+        indices = list(range(s,total_variables-total_states+s+1, total_states)) 
         for a in range(total_actions):
             pi_arb = np.sum(coeff[indices] * pi_array[:,s,a])
             logpi_arb = 0 if (pi_arb<=0 or np.isinf(pi_arb) or np.isnan(pi_arb)) else np.log(pi_arb)
@@ -214,28 +215,22 @@ def get_init_coeff(total_modules):
     coeff = np.full((total_modules, env1.observation_space.n,), fill_value=1./total_modules)
     return coeff
 
-def test_tab_arb(q_list, n_epi=1, max_steps=500, learn=True):
+def test_tab_arb(q_list, n_epi=20, max_steps=500, learn=True):
     returns = []
-<<<<<<< HEAD
-    coeff1, coeff2 = np.full(env1.observation_space.n, 0.5), np.full(env1.observation_space.n, 0.5)
-    pi1_k, pi2_k = get_pi(q1), get_pi(q2)
-=======
     coeff = get_init_coeff(total_modules)
     pi_array = get_pi(q_list, total_modules)
->>>>>>> 35dba4e140b8c832b60288a517bc50b491d42ad3
     for epi in range(n_epi):
         cumulative_r = 0
         step = 0
         epi_over = False
         for m in range(total_modules):
             env_list[m].reset()
-
-        pi_k = np.zeros((env1.observation_space.n, env1.action_space.n))
-        for i in range(total_modules):
-            pi_k += coeff[i][env1.cur_state] * pi_array[i]
-
+        
         # run an episode with pi_k
         while (not epi_over) and (step < max_steps):
+            pi_k = np.zeros((env1.observation_space.n, env1.action_space.n))
+            for i in range(total_modules):
+                pi_k += coeff[i][env1.cur_state] * pi_array[i]
             a_env = np.random.choice(4, p=pi_k[env1.cur_state]) # sample from pi_k
             s1, a1, s1_, r1, done1 = env1.step(a_env) # module1 and arb same
             if s1==s1_ and s1==env1.goal:
@@ -255,13 +250,8 @@ def test_tab_arb(q_list, n_epi=1, max_steps=500, learn=True):
         print("Done: {}, cumulative_r: {}, coeff1: {}\n".format(epi, cumulative_r, coeff[0]))
         returns.append(cumulative_r)
 
-<<<<<<< HEAD
-    np.save('coeff1', coeff1)
-    np.save('coeff2', coeff2)
-=======
-    # np.save('coeff1_greedy', coeff1)
-    # np.save('coeff2_greedy', coeff2)
->>>>>>> 35dba4e140b8c832b60288a517bc50b491d42ad3
+    # np.save('coeff1', coeff1)
+    # np.save('coeff2', coeff2)
     return returns
 
 
@@ -305,57 +295,17 @@ def main():
 
     q1 = np.load('m1_q1.npy')
     q2 = np.load('m2_q2.npy')
-<<<<<<< HEAD
-    # tab_arb_returns = test_tab_arb(q1, q2)
-    # plt.plot(tab_arb_returns)
-    # plt.show()
-    pi1 = get_pi(q1)
-    pi2 = get_pi(q2)
-    coeff1 = np.load('coeff1.npy')
-    coeff2 = np.load('coeff2.npy')
-
-    np.set_printoptions(precision=2, suppress=True)
-
-    print("pi1")
-    print(pi1)
-    print("\n")
-
-    print("pi2")
-    print(pi2)
-    print("\n")
-
-    pi_arb = np.empty((16, 4))
-    for s in range(16):
-        pi_arb[s] = coeff1[s]*pi1[s] + coeff2[s]*pi2[s]
-    print("pi_arb")
-    print(pi_arb)
-
-    np.save('m1_pi_greedy', pi1)
-    np.save('m2_pi_greedy', pi2)
-    np.save('pi_arb_greedy', pi_arb)
-=======
     q3 = np.load('m3_q3.npy')
     q4 = np.load('m4_q4.npy')
-    tab_arb_returns = test_tab_arb([q1, q2])
+    tab_arb_returns = test_tab_arb([q1, q2, q3, q4])
     plt.plot(tab_arb_returns)
     plt.show()
+    
     # pi1 = get_pi(q1)
     # pi2 = get_pi(q2)
-    # pi3 = get_pi(q3)
-    # pi4 = get_pi(q4)
-    
     # coeff1 = np.load('coeff1.npy')
-    # coeff2 = np.load('coeff2.npy')
+    # coeff2 = np.load('coeff2.npy')  
 
-
-    # # headers_pi = ["LEFT", "UP", "RIGHT", "DOWN"]
-    # # table_pi1 = columnar(pi1.tolist(), headers_pi, no_borders=True)
-    # # table_pi2 = columnar(pi2.tolist(), headers_pi, no_borders=True)
-    # # pi12 = np.hstack((pi1, pi2))
-    # # headers_pi12 = ["LEFT", "UP", "RIGHT", "DOWN", "LEFT", "UP", "RIGHT", "DOWN"]
-    # # table_pi12 = columnar(pi12.tolist(), headers_pi12)
-    # # print(table_pi12)
-    
     # print("pi1")
     # print(pi1)
     # print("\n")
@@ -373,14 +323,13 @@ def main():
     # np.save('m1_pi_greedy', pi1)
     # np.save('m2_pi_greedy', pi2)
     # np.save('pi_arb_greedy', pi_arb)
->>>>>>> 35dba4e140b8c832b60288a517bc50b491d42ad3
 
 if __name__ == "__main__":
     env1 = GridEnv(goal=15)
     env2 = GridEnv(goal=12)
     env3 = GridEnv(goal=3)
     env4 = GridEnv(goal=9)
-    env_list = [env1, env2]#, env3]#, env4]
+    env_list = [env1, env2, env3, env4]
     total_modules = len(env_list)
     main()
 
