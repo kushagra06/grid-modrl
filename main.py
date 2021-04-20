@@ -216,7 +216,7 @@ def optimize_pi(pi_k, pi1_k, pi2_k, coeff1, coeff2):
 def test_tab_arb(q1, q2, n_epi=20, max_steps=500, learn=True):
     returns = []
     coeff1, coeff2 = np.full(env1.observation_space.n, 0.5), np.full(env1.observation_space.n, 0.5)
-    pi1_k, pi2_k = get_greedy_pi(q1), get_greedy_pi(q2)
+    pi1_k, pi2_k = get_pi(q1), get_pi(q2)
     for epi in range(n_epi):
         cumulative_r = 0
         step = 0
@@ -246,8 +246,8 @@ def test_tab_arb(q1, q2, n_epi=20, max_steps=500, learn=True):
         print("Done: {}, cumulative_r: {}, coeff1: {}\n".format(epi, cumulative_r, coeff1))
         returns.append(cumulative_r)
 
-    np.save('coeff1_greedy', coeff1)
-    np.save('coeff2_greedy', coeff2)
+    np.save('coeff1', coeff1)
+    np.save('coeff2', coeff2)
     return returns
 
 
@@ -273,13 +273,15 @@ def main():
 
     q1 = np.load('m1_q1.npy')
     q2 = np.load('m2_q2.npy')
-    tab_arb_returns = test_tab_arb(q1, q2)
-    plt.plot(tab_arb_returns)
-    plt.show()
-    pi1 = get_greedy_pi(q1)
-    pi2 = get_greedy_pi(q2)
-    coeff1 = np.load('coeff1_greedy.npy')
-    coeff2 = np.load('coeff2_greedy.npy')
+    # tab_arb_returns = test_tab_arb(q1, q2)
+    # plt.plot(tab_arb_returns)
+    # plt.show()
+    pi1 = get_pi(q1)
+    pi2 = get_pi(q2)
+    coeff1 = np.load('coeff1.npy')
+    coeff2 = np.load('coeff2.npy')
+
+    np.set_printoptions(precision=2, suppress=True)
 
     print("pi1")
     print(pi1)
@@ -289,7 +291,6 @@ def main():
     print(pi2)
     print("\n")
 
-    np.set_printoptions(precision=2, suppress=True)
     pi_arb = np.empty((16, 4))
     for s in range(16):
         pi_arb[s] = coeff1[s]*pi1[s] + coeff2[s]*pi2[s]
