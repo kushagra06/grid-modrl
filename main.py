@@ -4,10 +4,11 @@ from grid import GridEnv
 from gridAgents import PolMixAgent, QModule, PolMixModule
 import matplotlib.pyplot as plt
 import tensorflow as tf
+import time
 # from columnar import columnar
 
 
-def run(agent, n_epi=500, max_steps=500, learn=True):
+def run(agent, n_epi=200, max_steps=500, learn=True):
     returns = []
 
     for epi in range(n_epi):
@@ -145,7 +146,6 @@ def arb_loss(coeff, dsa_k, q_k, pi_array):
     total_states = env1.observation_space.n
     total_actions = env1.action_space.n
     loss = 0.
-    coeff_s = np.zeros(total_modules)
     
     for s in range(total_states):       
         i = 0
@@ -155,6 +155,7 @@ def arb_loss(coeff, dsa_k, q_k, pi_array):
             pi_arb = np.sum(coeff[indices] * pi_array[:,s,a])
             logpi_arb = 0 if (pi_arb<=0 or np.isinf(pi_arb) or np.isnan(pi_arb)) else np.log(pi_arb)
             loss += dsa_k[s,a] * q_k[s,a] * logpi_arb
+
     return -loss
 
 
@@ -173,26 +174,27 @@ def get_q(pi_k, gamma=0.9):
     total_states = env1.observation_space.n
     total_actions = env1.action_space.n
 
-    coeffients = []
+    coefficients = []
     for s in range(total_states):
         for a in range(total_actions):
             for s_ in range(total_states):
                 for a_ in range(total_actions):
-                    coeffients.append(env1.P[(a,s,s_)] * pi_k[s_,a_])
+                    coefficients.append(env1.P[(a,s,s_)] * pi_k[s_,a_])
 
     I = np.eye(total_states*total_actions, total_states*total_actions)
 
-    A = I - gamma * np.asarray(coeffients).reshape((total_states*total_actions, total_states*total_actions))
+    A = I - gamma * np.asarray(coefficients).reshape((total_states*total_actions, total_states*total_actions))
 
     R = []
     for s in range(total_states):
         for a in range(total_actions):
             val = 0
             for s_ in range(total_states):
-                if s == s_ and s == env1.goal:
-                    r = 10
-                else:
-                    r = 1
+                r = 10 if (s==s_ and s==env1.goal) else 1
+                # if s == s_ and s == env1.goal:
+                #     r = 10
+                # else:
+                #     r = 1
                 val += env1.P[(a,s,s_)] * r ## reward signal for the arb = global r
             R.append(val)  
 
@@ -207,33 +209,59 @@ def optimize_pi(pi_k, pi_array, coeff):
     q_k = get_q(pi_k)
     d_s, d_sa = get_occupancy_measure(pi_k)
     coeff = solve_coeff(coeff, q_k, d_sa, pi_array)
-    
     return np.reshape(coeff, newshape=(total_modules, env1.observation_space.n))
 
 
-def get_init_coeff(total_modules):
-    coeff = np.full((total_modules, env1.observation_space.n,), fill_value=1./total_modules)
+def get_init_coeff(total_modules, arb_env):
+    coeff = np.full((total_modules, arb_env.observation_space.n,), fill_value=1./total_modules)
+    # coeff[0][:] = 0.01
+    # coeff[1][:] = 0.99 
     return coeff
 
-def test_tab_arb(q_list, n_epi=20, max_steps=500, learn=True):
+
+def value_iteration(env, eps=1e-05, gamma=0.9):
+    total_states, total_actions = env.observation_space.n, env.action_space.n
+    q = np.zeros((total_states, total_actions))
+    v = np.zeros(total_states)
+
+    while True:
+        delta = 0.
+        for s in range(total_states):
+            v_old = v[s]
+            for a in range(total_actions):
+                val = 0
+                q_old = q[s,a]
+                for s_ in range(total_states):
+                    r = 10 if (s==s_ and s==env.goal) else 1
+                    val += env.P[a,s,s_] * (r + gamma * np.max(q[s_]))
+                delta = max(delta, abs(q[s,a]-val))
+                q[s,a] = val
+            # v[s] = np.max(q[s])
+            # delta = max(delta, np.abs(v[s]-v_old))
+        if delta < eps:
+            break
+    
+    return q
+
+
+def test_tab_arb(q_list, arb_env, n_epi=20, max_steps=500, learn=True):
     returns = []
-    coeff = get_init_coeff(total_modules)
+    coeff = get_init_coeff(total_modules, arb_env)
     pi_array = get_pi(q_list, total_modules)
+    print("total_modules", total_modules)
     for epi in range(n_epi):
         cumulative_r = 0
         step = 0
         epi_over = False
-        for m in range(total_modules):
-            env_list[m].reset()
-        
+        arb_env.reset()      
         # run an episode with pi_k
         while (not epi_over) and (step < max_steps):
-            pi_k = np.zeros((env1.observation_space.n, env1.action_space.n))
+            pi_k = np.zeros((arb_env.observation_space.n, arb_env.action_space.n))
             for i in range(total_modules):
-                pi_k += coeff[i][env1.cur_state] * pi_array[i]
-            a_env = np.random.choice(4, p=pi_k[env1.cur_state]) # sample from pi_k
-            s1, a1, s1_, r1, done1 = env1.step(a_env) # module1 and arb same
-            if s1==s1_ and s1==env1.goal:
+                pi_k += coeff[i][arb_env.cur_state] * pi_array[i]
+            a_env = np.random.choice(4, p=pi_k[arb_env.cur_state]) # sample from pi_k
+            s1, a1, s1_, r1, done1 = arb_env.step(a_env) # module1 and arb same
+            if s1==s1_ and s1==arb_env.goal:
                 r1 = 10
             else:
                 r1 = 1
@@ -287,17 +315,87 @@ def main():
     # print("\n")
     # print("pi4")
     # print(pi4)
+    # agent5 = QModule(env5)
+    # returns5 = run(agent5)
+    # np.save('m5_q5', agent5.q)
 
-    # pol_mix_agent = PolMixAgent(env1, env2)
-    # arb_agent = PolMixModule(env1)
-    # arb_returns = test_arb(arb_agent)
-    # print(arb_returns)
+    # env6_1 = GridEnv(grid_size=6, goal=35)
+    # agent6_1 = QModule(env6_1)
+    # returns6_1 = run(agent6_1)
+    # np.save('m1_q_6', agent6_1.q)
 
-    q1 = np.load('m1_q1.npy')
-    q2 = np.load('m2_q2.npy')
-    q3 = np.load('m3_q3.npy')
-    q4 = np.load('m4_q4.npy')
-    tab_arb_returns = test_tab_arb([q1, q2, q3, q4])
+    # env6_2 = GridEnv(grid_size=6, goal=10)
+    # agent6_2 = QModule(env6_2)
+    # returns6_2 = run(agent6_2)
+    # np.save('m2_q_6', agent6_2.q)
+
+    # env5_1 = GridEnv(grid_size=5, goal=24)
+    # q5_1_vi = value_iteration(env5_1)
+    # np.save('m1_q_5_vi', q5_1_vi)
+
+    # pi5_1_vi = get_pi([q5_1_vi], 1)
+    # print(pi5_1_vi)
+    # print("\n")
+    # q5_1 = np.load('m1_q_5.npy')
+    # pi5_1 = get_pi([q5_1], 1)
+    # print(pi5_1) 
+    # agent5_1 = QModule(env5_1)
+    # returns5_1 = run(agent5_1)
+    # # np.save('m1_q_5', agent5_1.q)
+
+    env5_2 = GridEnv(grid_size=5, goal=12)
+    q5_2_vi = value_iteration(env5_2)
+    # print(q5_2_vi)
+    # print("\n")
+    # pi5_2_vi = get_pi([q5_2_vi], 1)
+    # print(pi5_2_vi)
+    np.save('m2_q_5_vi', q5_2_vi)
+    # agent5_2 = QModule(env5_2)
+    # returns5_2 = run(agent5_2)
+    # np.save('m2_q_5', agent5_2.q)
+    
+    # env5_3 = GridEnv(grid_size=5, goal=17)
+    # agent5_3 = QModule(env5_3)
+    # returns5_3 = run(agent5_3)
+    # np.save('m3_q_5', agent5_3.q)
+
+    # env5_4 = GridEnv(grid_size=5, goal=20)
+    # agent5_4 = QModule(env5_4)
+    # returns5_4 = run(agent5_4)
+    # np.save('m4_q_5', agent5_4.q)
+
+    # env7_1 = GridEnv(grid_size=7, goal=48)
+    # agent7_1 = QModule(env7_1)
+    # returns7_1 = run(agent7_1)
+    # np.save('m1_q_7', agent7_1.q)
+
+    # env7_2 = GridEnv(grid_size=7, goal=24)
+    # agent7_2 = QModule(env7_2)
+    # returns7_2 = run(agent7_2)
+    # np.save('m2_q_7', agent7_2.q)
+
+
+    q5_1_vi, q5_2_vi = np.load('m1_q_5_vi.npy'), np.load('m2_q_5_vi.npy')
+
+    # q7_1 = np.load('m1_q_7.npy')
+    # q7_2 = np.load('m2_q_7.npy')
+    # q5_1 = np.load('m1_q_5.npy')
+    # q5_2 = np.load('m2_q_5.npy')
+    # q5_3 = np.load('m3_q_5.npy')
+    # q5_4 = np.load('m4_q_5.npy')
+    # q6_1 = np.load('m1_q_6.npy')
+    # q6_2 = np.load('m2_q_6.npy')
+    # q1 = np.load('m1_q1.npy')
+    # q2 = np.load('m2_q2.npy')
+    # q3 = np.load('m3_q3.npy')
+    # q4 = np.load('m4_q4.npy')
+    # q5 = np.load('m5_q5.npy')
+    # q_rand = np.random.rand(env1.observation_space.n, env1.action_space.n)
+
+    start = time.time()
+    tab_arb_returns = test_tab_arb([q5_1_vi, q5_2_vi], arb_env=env1)#q5_2, q5_3, q5_4], arb_env=env1)#, q_rand, q_rand, q_rand])
+    end = time.time()
+    print("Total time taken: ", end-start)
     plt.plot(tab_arb_returns)
     plt.show()
     
@@ -325,12 +423,16 @@ def main():
     # np.save('pi_arb_greedy', pi_arb)
 
 if __name__ == "__main__":
-    env1 = GridEnv(goal=15)
+    # env1 = GridEnv(goal=15)
     env2 = GridEnv(goal=12)
     env3 = GridEnv(goal=3)
     env4 = GridEnv(goal=9)
-    env_list = [env1, env2, env3, env4]
-    total_modules = len(env_list)
+    env5 = GridEnv(goal=10)
+    # env_list = [env1, env2, env3, env4, env5]
+    # env1 = GridEnv(grid_size=7, goal=48)
+    # env1 = GridEnv(grid_size=6, goal=35)
+    env1 = GridEnv(grid_size=5, goal=24)
+    total_modules = 2
     main()
 
 
