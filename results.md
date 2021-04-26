@@ -107,10 +107,20 @@
 <figcaption> t = 87.20s </figcaption>
 </figure>
 
+<figure>
+<img src="./figures/arb_m2_adver_6x6.png" alt="2 modules; stochastic policy" width="200">
+<figcaption> 2 modules; 1 "random" (brittle) </figcaption>
+</figure>
+
 #### Arbitrator's learning curves (7x7)
 <figure>
 <img src="./figures/arb_m2_stoch_7x7.png" alt="2 modules; stochastic policy" width="200">
 <figcaption> t = 225.24s </figcaption>
+</figure>
+
+<figure>
+<img src="./figures/arb_m2_adver_7x7.png" alt="2 modules; stochastic policy" width="200">
+<figcaption> 2 modules; 1 "random" (brittle) </figcaption>
 </figure>
 
 ##### Notes:

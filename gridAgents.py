@@ -16,7 +16,7 @@ config = tf.compat.v1.ConfigProto(device_count = {'GPU':0, 'CPU': 6} )
 #     def __init__(self, env, gamma=0.9)
 
 class QModule:
-    def __init__(self, env, eps=1., alpha=0.1, gamma=0.9):
+    def __init__(self, env, eps=1., alpha=0.2, gamma=0.9):
         self.env = env
         self._height = len(self.env.gridworld)
         self._width = len(self.env.gridworld[0])
@@ -24,6 +24,7 @@ class QModule:
         self.n_acts = self.env.action_space.n
         self.q = np.zeros([self.n_states, self.n_acts])
         self.q[self.env.goal] = np.full(self.n_acts, 100.)
+        self.cumulative_r = 0.
         # for x in range(self._height):
         #     for y in range(self._width):
         #         self.q[(x,y)] = {'LEFT':0, 'UP':0, 'RIGHT':0, 'DOWN':0}
@@ -42,13 +43,16 @@ class QModule:
         self.q[s,a] = (1-self.alpha) * self.q[s,a] + self.alpha * (r + self.gamma * np.max(self.q[new_s]))
 
     
-    def get_policy(state):
+    def get_policy(self, state):
         policy = self._softmax(self.q[state])
         return policy
 
-    def _softmax(x):
+    def _softmax(self, x):
         e_x = np.exp(x - np.max(x))
         return e_x / np.sum(e_x)
+
+    def reset(self):
+        self.cumulative_r = 0.
 
 
 class PolMixModule:

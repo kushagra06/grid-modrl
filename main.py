@@ -243,8 +243,66 @@ def value_iteration(env, eps=1e-05, gamma=0.9):
     
     return q
 
+def learn_mod_arb(env_list, n_epi=50, max_steps=500):
+    mods_agents = []
+    returns_mods = []
+    for _ in range(total_modules):
+        returns_mods.append([])
+    returns_arb = []
+    arb_env = env_list[0]
+    coeff = get_init_coeff(total_modules, arb_env)
+    for i in range(1, len(env_list)):
+        mods_agents.append(QModule(env_list[i]))
+    print("total_modules: ", total_modules)
 
-def test_tab_arb(q_list, arb_env, n_epi=20, max_steps=500, learn=True):
+    for epi in range(n_epi):
+        step = 0
+        cumulative_r_arb = 0.
+        epi_over = False
+        for env in env_list:
+            env.reset()
+        
+        q_list = []
+        for i in range(len(mods_agents)):
+            mods_agents[i].reset()
+            q_list.append(mods_agents[i].q)
+        
+        pi_array = get_pi(q_list, total_modules)
+        pi_arb = np.zeros((arb_env.observation_space.n, arb_env.action_space.n))
+        for s in range(arb_env.observation_space.n):
+            for m in range(total_modules):
+                pi_arb[s] += coeff[m][s] * pi_array[m][s]
+            # pi_arb[s] = pi_arb[s]/np.sum(pi_arb[s])
+        
+        while (not epi_over) and (step < max_steps):
+            a_arb = np.random.choice(4, p=pi_arb[arb_env.cur_state])
+            s_arb, a_arb, new_s_arb, r_arb, done_arb = arb_env.step(a_arb)
+            r_arb = 10. if (s_arb == new_s_arb and s_arb == arb_env.goal) else 1.
+            cumulative_r_arb += r_arb
+            step += 1
+
+            for m in range(total_modules):
+                a = mods_agents[m].get_action(mods_agents[m].env.cur_state)
+                s, a, s_, r, done = mods_agents[m].env.step(a)
+                mods_agents[m].update(s, a, s_, r)
+                mods_agents[m].cumulative_r += r
+
+            if done_arb:
+                epi_over = True
+        
+        coeff = optimize_pi(pi_arb, pi_array, coeff)
+        print("Done: {}, cumulative_r: {}, coeff1: {}\n".format(epi, cumulative_r_arb, coeff[0]))
+        
+        returns_arb.append(cumulative_r_arb)
+        for m in range(total_modules):
+            mods_agents[m].eps *= 0.99
+            returns_mods[m].append(mods_agents[m].cumulative_r)
+    pi = get_pi([mods_agents[0].q, mods_agents[1].q], 2)
+    print(pi)
+    return returns_arb, returns_mods
+
+
+def test_tab_arb(q_list, arb_env, n_epi=20, max_steps=500):
     returns = []
     coeff = get_init_coeff(total_modules, arb_env)
     pi_array = get_pi(q_list, total_modules)
@@ -261,10 +319,7 @@ def test_tab_arb(q_list, arb_env, n_epi=20, max_steps=500, learn=True):
                 pi_k += coeff[i][arb_env.cur_state] * pi_array[i]
             a_env = np.random.choice(4, p=pi_k[arb_env.cur_state]) # sample from pi_k
             s1, a1, s1_, r1, done1 = arb_env.step(a_env) # module1 and arb same
-            if s1==s1_ and s1==arb_env.goal:
-                r1 = 10
-            else:
-                r1 = 1
+            r1 = 10. if (s1==s1_ and s1==arb_env.goal) else 1.
 
             cumulative_r += r1
             step += 1
@@ -286,6 +341,11 @@ def test_tab_arb(q_list, arb_env, n_epi=20, max_steps=500, learn=True):
 def main():
     np.set_printoptions(precision=4, suppress=True)
 
+    q4_1_vi = value_iteration(env1)
+    env4_2 = GridEnv(goal=12)
+    q4_2_vi = value_iteration(env4_2)
+    np.save('m1_q_4_vi', q4_1_vi)
+    np.save('m2_q_4_vi', q4_2_vi)
     # agent1 = QModule(env1)
     # agent2 = QModule(env2)
     # returns1 = run(agent1)
@@ -343,13 +403,13 @@ def main():
     # returns5_1 = run(agent5_1)
     # # np.save('m1_q_5', agent5_1.q)
 
-    env5_2 = GridEnv(grid_size=5, goal=12)
-    q5_2_vi = value_iteration(env5_2)
+    # env5_2 = GridEnv(grid_size=5, goal=12)
+    # q5_2_vi = value_iteration(env5_2)
     # print(q5_2_vi)
     # print("\n")
     # pi5_2_vi = get_pi([q5_2_vi], 1)
     # print(pi5_2_vi)
-    np.save('m2_q_5_vi', q5_2_vi)
+    # np.save('m2_q_5_vi', q5_2_vi)
     # agent5_2 = QModule(env5_2)
     # returns5_2 = run(agent5_2)
     # np.save('m2_q_5', agent5_2.q)
@@ -375,8 +435,8 @@ def main():
     # np.save('m2_q_7', agent7_2.q)
 
 
-    q5_1_vi, q5_2_vi = np.load('m1_q_5_vi.npy'), np.load('m2_q_5_vi.npy')
-
+    # q4_1_vi, q4_2_vi = np.load('m1_q_4_vi.npy'), np.load('m2_q_4_vi.npy')
+    # q5_1_vi, q5_2_vi = np.load('m1_q_5_vi.npy'), np.load('m2_q_5_vi.npy')
     # q7_1 = np.load('m1_q_7.npy')
     # q7_2 = np.load('m2_q_7.npy')
     # q5_1 = np.load('m1_q_5.npy')
@@ -391,12 +451,13 @@ def main():
     # q4 = np.load('m4_q4.npy')
     # q5 = np.load('m5_q5.npy')
     # q_rand = np.random.rand(env1.observation_space.n, env1.action_space.n)
-
+    env_list = [env1, env1, env2]
     start = time.time()
-    tab_arb_returns = test_tab_arb([q5_1_vi, q5_2_vi], arb_env=env1)#q5_2, q5_3, q5_4], arb_env=env1)#, q_rand, q_rand, q_rand])
+    # tab_arb_returns = test_tab_arb([q4_1_vi, q4_2_vi], arb_env=env1)#q5_2, q5_3, q5_4], arb_env=env1)#, q_rand, q_rand, q_rand])
+    returns_arb, returns_mods = learn_mod_arb(env_list)
     end = time.time()
     print("Total time taken: ", end-start)
-    plt.plot(tab_arb_returns)
+    plt.plot(returns_arb)
     plt.show()
     
     # pi1 = get_pi(q1)
@@ -423,7 +484,7 @@ def main():
     # np.save('pi_arb_greedy', pi_arb)
 
 if __name__ == "__main__":
-    # env1 = GridEnv(goal=15)
+    env1 = GridEnv(goal=15)
     env2 = GridEnv(goal=12)
     env3 = GridEnv(goal=3)
     env4 = GridEnv(goal=9)
@@ -431,7 +492,7 @@ if __name__ == "__main__":
     # env_list = [env1, env2, env3, env4, env5]
     # env1 = GridEnv(grid_size=7, goal=48)
     # env1 = GridEnv(grid_size=6, goal=35)
-    env1 = GridEnv(grid_size=5, goal=24)
+    # env1 = GridEnv(grid_size=5, goal=24)
     total_modules = 2
     main()
 
