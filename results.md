@@ -161,7 +161,7 @@
 
 ##### Notes:
 
-* Learning become brittle with larger domains and "random" module.
+* Learning becomes brittle with larger domains and "random" module (6x6 and 7x7).
 
 * Works for any initialization of lambdas (>0).
 
