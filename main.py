@@ -1,7 +1,7 @@
 import numpy as np
 from scipy import optimize 
 from grid import GridEnv
-from gridAgents import PolMixAgent, QModule, PolMixModule
+from gridAgents import QModule
 import matplotlib.pyplot as plt
 import tensorflow as tf
 import time
@@ -297,8 +297,7 @@ def learn_mod_arb(env_list, n_epi=50, max_steps=500):
         for m in range(total_modules):
             mods_agents[m].eps *= 0.99
             returns_mods[m].append(mods_agents[m].cumulative_r)
-    pi = get_pi([mods_agents[0].q, mods_agents[1].q], 2)
-    print(pi)
+
     return returns_arb, returns_mods
 
 
@@ -341,11 +340,11 @@ def test_tab_arb(q_list, arb_env, n_epi=20, max_steps=500):
 def main():
     np.set_printoptions(precision=4, suppress=True)
 
-    q4_1_vi = value_iteration(env1)
-    env4_2 = GridEnv(goal=12)
-    q4_2_vi = value_iteration(env4_2)
-    np.save('m1_q_4_vi', q4_1_vi)
-    np.save('m2_q_4_vi', q4_2_vi)
+    # q4_1_vi = value_iteration(env1)
+    # env4_2 = GridEnv(goal=12)
+    # q4_2_vi = value_iteration(env4_2)
+    # np.save('m1_q_4_vi', q4_1_vi)
+    # np.save('m2_q_4_vi', q4_2_vi)
     # agent1 = QModule(env1)
     # agent2 = QModule(env2)
     # returns1 = run(agent1)
@@ -451,7 +450,7 @@ def main():
     # q4 = np.load('m4_q4.npy')
     # q5 = np.load('m5_q5.npy')
     # q_rand = np.random.rand(env1.observation_space.n, env1.action_space.n)
-    env_list = [env1, env1, env2]
+    env_list = [env1, env1, env2, env3]
     start = time.time()
     # tab_arb_returns = test_tab_arb([q4_1_vi, q4_2_vi], arb_env=env1)#q5_2, q5_3, q5_4], arb_env=env1)#, q_rand, q_rand, q_rand])
     returns_arb, returns_mods = learn_mod_arb(env_list)
@@ -484,16 +483,18 @@ def main():
     # np.save('pi_arb_greedy', pi_arb)
 
 if __name__ == "__main__":
-    env1 = GridEnv(goal=15)
-    env2 = GridEnv(goal=12)
-    env3 = GridEnv(goal=3)
-    env4 = GridEnv(goal=9)
-    env5 = GridEnv(goal=10)
+    # env1 = GridEnv(goal=15)
+    # env2 = GridEnv(goal=12)
+    # env3 = GridEnv(goal=3)
+    # env4 = GridEnv(goal=9)
+    # env5 = GridEnv(goal=10)
     # env_list = [env1, env2, env3, env4, env5]
     # env1 = GridEnv(grid_size=7, goal=48)
     # env1 = GridEnv(grid_size=6, goal=35)
-    # env1 = GridEnv(grid_size=5, goal=24)
-    total_modules = 2
+    env1 = GridEnv(grid_size=5, goal=24)
+    env2 = GridEnv(grid_size=5, goal=12)
+    env3 = GridEnv(grid_size=5, goal=8)
+    total_modules = 3
     main()
 
 

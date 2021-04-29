@@ -125,10 +125,6 @@
 
 ##### Notes:
 
-* Learning become brittle with larger domains and "random" module.
-
-* Works for any initialization of lambdas (>0)
-
 * Reward curves become smoother as the number of modules increase.
 
 * Increasing the number of modules have no effect on learning.
@@ -138,4 +134,39 @@
 * Also works if there are >1 random modules. (At least one module needs to be non-random)
 
 * Arbitrator's policy is non-composable: selects one module; doesn't compose a new policy from all the modules.
+
+
+---
+
+#### April 26, 2021
+
+##### With exact Q values for modules (using value iteration)
+<figure>
+<img src="./figures/arb_m2_exactq_5x5.png" alt="2 modules; stochastic policy" width="200">
+<figcaption> 2 modules</figcaption>
+</figure>
+
+
+##### Simultaneous learning
+
+<figure>
+<img src="./figures/arb_m2_5x5_simul.png" alt="2 modules; stochastic policy" width="200">
+<figcaption> 2 modules; t = 39.25s</figcaption>
+</figure>
+
+<figure>
+<img src="./figures/arb_m3_5x5_simul.png" alt="2 modules; stochastic policy" width="200">
+<figcaption> 3 modules; t = 104.66s</figcaption>
+</figure>
+
+##### Notes:
+
+* Learning become brittle with larger domains and "random" module.
+
+* Works for any initialization of lambdas (>0).
+
+* Works with exact Q values for modules computed using value iteration.
+
+* Simultaneous learning of modules and arb noisy (with tabular Q-learning and solver).
+
 
