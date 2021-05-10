@@ -9,6 +9,8 @@ import torch.nn as nn
 
 from typing import Tuple, Callable
 
+from utils import ReplayMemory, Transition
+
 EPS_START = 0.9
 EPS_END = 0.05
 EPS_DECAY = 200
@@ -54,7 +56,7 @@ class DQNAgent(RLNetwork):
             return torch.tensor([[random.randrange(a_dim)]], device=device, dtype=torch.long)
 
 
-class ArbPi(RLNetwork):
+class Arbitrator(RLNetwork):
     def __init__(self, batch_size=8, a_dim=2, s_dim=16):
         super().__init__()
         self.linear_relu_stack = nn.Sequential(
@@ -62,12 +64,28 @@ class ArbPi(RLNetwork):
             nn.ReLU(inplace=True),
             nn.Linear(64, 64),
             nn.ReLU(inplace=True),
-            nn.Softmax(64, a_dim)
+            nn.Linear(64, a_dim),
+            nn.Softmax(dim=1)
         )
     
     def forward(self, state: torch.Tensor):
         coeff_s = self.linear_relu_stack(state)
         return coeff_s
+    
+    def optimize(self, memory):
+        transitions = memory.sample(len(memory))
+        batch = Transition(*zip(*transitions))
+
+        state_batch = torch.cat(batch.state)
+        action_batch = torch.cat(batch.action)
+        reward_batch = torch.cat(batch.reward)
+        next_state_batch = torch.cat(batch.next_state)
+
+        loss = self.loss()
+    
+    def loss(self, pi_k, coeff, q_k):
+        pi_arb = torch.sum(coeff)
+
 
 
         

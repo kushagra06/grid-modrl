@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-from torch_gridagents import DQNAgent
+from torch_gridagents import DQNAgent, Arbitrator
 from grid import GridEnv
 from utils import ReplayMemory, Transition
 
@@ -21,21 +21,21 @@ memory = ReplayMemory(10000)
 
 
 
-def get_pi(models_list, s_dim=16, a_dim_mods=4):
-    n_modules = len(models_list)
+def get_pi(modules_list, s_dim=16, a_dim_mods=4):
+    n_modules = len(modules_list)
     # pi_tensors = torch.FloatTensor()
     pi_list = []
     for m in range(n_modules):
         pi = torch.FloatTensor()
         for s in range(s_dim):
             s_tensor = get_state_vector(s)
-            q_s = models_list[m](s_tensor)
+            q_s = modules_list[m](s_tensor)
             pi_s = F.softmax(q_s, dim=1)
             pi = torch.cat((pi, pi_s), dim=0)
         # pi_tensors = torch.cat((pi_tensors, pi), dim=0)
         pi_list.append(pi)
 
-    return pi_list
+    return torch.stack(pi_list)
 
 def get_state_vector(s, s_dim=16):
     # if s==None:
@@ -118,22 +118,47 @@ def run_dqn(env, n_epi=50):
     # torch.save(agent.state_dict(), "./pytorch_models/dqn_4x4_g7.pt")
     return returns
 
-def test_arb(env, model_files, n_epi=50):
-    n_modules = len(model_files)
-    models_list = []
+def test_arb(arb_env, module_files, n_epi=1):
+    n_modules = len(module_files)
+    modules_list = []
     for i in range(n_modules):
         m = DQNAgent()
-        m.load_state_dict(torch.load(model_files[i]))
+        m.load_state_dict(torch.load(module_files[i]))
         m.eval()
-        models_list.append(m)
+        modules_list.append(m)
     
-    pi_list = get_pi(models_list)
-    for epi in range(n_epi):
-        env.reset()
-        for t in count():
-            break
+    pi_tensors = get_pi(modules_list)
+    s_dim, a_dim = 16, 4
+    arb = Arbitrator()
 
-    return []
+    for epi in range(n_epi):
+        arb_env.reset()
+        cumulative_r = 0.
+        for t in count():
+            state = get_state_vector(arb_env.cur_state)
+            coeff = torch.flatten(arb(state))
+            pi_k = torch.zeros(s_dim, a_dim)
+            for m in range(n_modules):
+                pi_k += coeff[m] * pi_tensors[m]
+            a = np.random.choice(4, p=pi_k[arb_env.cur_state].detach().cpu().numpy())
+            s, a, s_, r, done = arb_env.step(a)
+            r = 100. if done else 1.
+            cumulative_r += r
+            reward = torch.FloatTensor([r], device=device)
+            next_state = get_state_vector(s_)
+
+            memory.push(state, coeff, next_state, reward)
+
+            if done:
+                break
+        
+        # if epi%4 == 0:
+        arb.optimize()
+        returns.append(cumulative_r)
+        print("epi {} over".format(epi))
+
+
+    return returns
 
 
 def main():
@@ -143,8 +168,8 @@ def main():
     # plt.show()
     # print('Done')
 
-    model_files = ["./pytorch_models/dqn_4x4.pt", "./pytorch_models/dqn_4x4_g7.pt"]
-    returns = test_arb(env, model_files)
+    module_files = ["./pytorch_models/dqn_4x4.pt", "./pytorch_models/dqn_4x4_g7.pt"]
+    returns = test_arb(env, module_files)
 
 
 
