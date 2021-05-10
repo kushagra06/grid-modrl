@@ -78,6 +78,8 @@ class GridEnv(gym.Env):
                 r = self.get_reward(self.cur_state)
         
         done = 1 if self.cur_state == self.goal else 0
+
+        # self.cur_state = None if done else self.cur_state # for DQN?
         
         return prev_state, a, self.cur_state, r, done
     

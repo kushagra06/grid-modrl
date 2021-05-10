@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.nn.functional as F
 
 from torch_gridagents import DQNAgent
 from grid import GridEnv
@@ -18,13 +19,34 @@ GAMMA = 0.9
 
 memory = ReplayMemory(10000)
 
+
+
+def get_pi(models_list, s_dim=16, a_dim_mods=4):
+    n_modules = len(models_list)
+    # pi_tensors = torch.FloatTensor()
+    pi_list = []
+    for m in range(n_modules):
+        pi = torch.FloatTensor()
+        for s in range(s_dim):
+            s_tensor = get_state_vector(s)
+            q_s = models_list[m](s_tensor)
+            pi_s = F.softmax(q_s, dim=1)
+            pi = torch.cat((pi, pi_s), dim=0)
+        # pi_tensors = torch.cat((pi_tensors, pi), dim=0)
+        pi_list.append(pi)
+
+    return pi_list
+
 def get_state_vector(s, s_dim=16):
+    # if s==None:
+    #     return torch.full((s_dim,), fill_value=None, dtype=None)
+    
     x = np.zeros(s_dim)
     x[s] = 1.
     x = np.expand_dims(x, 0) 
     return torch.FloatTensor(x)
 
-def optimize_model(agent, target_agent, optimizer):
+def optimize_model(agent, target_agent, optimizer, done):
     if len(memory) < BATCH_SIZE:
         return
     
@@ -39,9 +61,13 @@ def optimize_model(agent, target_agent, optimizer):
 
     state_action_values = agent(state_batch).gather(dim=1, index=action_batch)
     next_state_values = torch.zeros(BATCH_SIZE, device=device)
-    next_state_values[non_final_mask] = target_agent(non_final_next_states).max(1)[0].detach()
+    next_state_values[non_final_mask] = target_agent(non_final_next_states).max(1)[0].detach() #max Q
 
-    expected_state_action_values = reward_batch + GAMMA * next_state_values
+    # print("next_state_values: ", next_state_values)
+    # print("next_state: ", batch.next_state)
+    # print("non_final_next_states: ", non_final_next_states)
+    expected_state_action_values = reward_batch if done else reward_batch + GAMMA * next_state_values
+    # expected_state_action_values = reward_batch + GAMMA * next_state_values
 
     criterion = nn.SmoothL1Loss()
     loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
@@ -51,7 +77,7 @@ def optimize_model(agent, target_agent, optimizer):
     optimizer.step()
 
 
-def run(env, n_epi=50):
+def run_dqn(env, n_epi=50):
     agent = DQNAgent(BATCH_SIZE).to(device)
     target_agent = DQNAgent(BATCH_SIZE).to(device)
     target_agent.load_state_dict(agent.state_dict())
@@ -68,35 +94,64 @@ def run(env, n_epi=50):
             action = agent.get_action_epsgreedy(state, steps)
             np_action = action.detach().cpu().numpy()[0][0] #convert tensor to np
             s, a, s_, r, done = env.step(np_action)
+            r = 100 if done else 1
             cumulative_r += r
             steps += 1
-            reward = torch.tensor([r], device=device)
-            next_state = get_state_vector(env.cur_state)
+            reward = torch.FloatTensor([r], device=device)
+            next_state = get_state_vector(s_)
 
             memory.push(state, action, next_state, reward)
 
-            optimize_model(agent, target_agent, optimizer)
+            optimize_model(agent, target_agent, optimizer, done)
 
             if done:
                 epi_durations.append(t+1)
                 break
         
         returns.append(cumulative_r)
-        if epi % TARGET_UPDATE == 0:
-            print("epi {} over".format(epi))        
-            target_agent.load_state_dict(agent.state_dict())
+        print("epi {} over".format(epi))        
 
+        # if epi % TARGET_UPDATE == 0:
+        #     print("epi {} over".format(epi))        
+        #     target_agent.load_state_dict(agent.state_dict())
+    
+    # torch.save(agent.state_dict(), "./pytorch_models/dqn_4x4_g7.pt")
     return returns
+
+def test_arb(env, model_files, n_epi=50):
+    n_modules = len(model_files)
+    models_list = []
+    for i in range(n_modules):
+        m = DQNAgent()
+        m.load_state_dict(torch.load(model_files[i]))
+        m.eval()
+        models_list.append(m)
+    
+    pi_list = get_pi(models_list)
+    for epi in range(n_epi):
+        env.reset()
+        for t in count():
+            break
+
+    return []
+
 
 def main():
     env = GridEnv()
-    returns = run(env)
-    plt.plot(returns)
-    plt.show()
-    print('Done')
+    # returns = run_dqn(env)
+    # plt.plot(returns)
+    # plt.show()
+    # print('Done')
 
-    
+    model_files = ["./pytorch_models/dqn_4x4.pt", "./pytorch_models/dqn_4x4_g7.pt"]
+    returns = test_arb(env, model_files)
+
+
+
 
 
 if __name__ == "__main__":
     main()
+
+## Notes:
+# if done then expected_q_vals = r else r + gamma * next_q_values ???

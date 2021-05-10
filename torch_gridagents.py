@@ -54,6 +54,22 @@ class DQNAgent(RLNetwork):
             return torch.tensor([[random.randrange(a_dim)]], device=device, dtype=torch.long)
 
 
+class ArbPi(RLNetwork):
+    def __init__(self, batch_size=8, a_dim=2, s_dim=16):
+        super().__init__()
+        self.linear_relu_stack = nn.Sequential(
+            nn.Linear(s_dim, 64),
+            nn.ReLU(inplace=True),
+            nn.Linear(64, 64),
+            nn.ReLU(inplace=True),
+            nn.Softmax(64, a_dim)
+        )
+    
+    def forward(self, state: torch.Tensor):
+        coeff_s = self.linear_relu_stack(state)
+        return coeff_s
+
+
         
 
 

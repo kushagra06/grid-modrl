@@ -8,6 +8,9 @@ import time
 # from columnar import columnar
 
 
+ALPHA_ARB = 1e-02
+GAMMA = 0.9
+
 def run(agent, n_epi=200, max_steps=500, learn=True):
     returns = []
 
@@ -243,7 +246,7 @@ def value_iteration(env, eps=1e-05, gamma=0.9):
     
     return q
 
-def learn_mod_arb(env_list, n_epi=50, max_steps=500):
+def learn_mod_arb(env_list, n_epi=100, max_steps=500):
     mods_agents = []
     returns_mods = []
     for _ in range(total_modules):
@@ -272,7 +275,7 @@ def learn_mod_arb(env_list, n_epi=50, max_steps=500):
         for s in range(arb_env.observation_space.n):
             for m in range(total_modules):
                 pi_arb[s] += coeff[m][s] * pi_array[m][s]
-            # pi_arb[s] = pi_arb[s]/np.sum(pi_arb[s])
+            pi_arb[s] = pi_arb[s]/np.sum(pi_arb[s])
         
         while (not epi_over) and (step < max_steps):
             a_arb = np.random.choice(4, p=pi_arb[arb_env.cur_state])
@@ -282,16 +285,19 @@ def learn_mod_arb(env_list, n_epi=50, max_steps=500):
             step += 1
 
             for m in range(total_modules):
-                a = mods_agents[m].get_action(mods_agents[m].env.cur_state)
-                s, a, s_, r, done = mods_agents[m].env.step(a)
+                # a = mods_agents[m].get_action(mods_agents[m].env.cur_state)
+                s, a, s_, r, done = mods_agents[m].env.step(a_arb)
                 mods_agents[m].update(s, a, s_, r)
                 mods_agents[m].cumulative_r += r
 
             if done_arb:
                 epi_over = True
         
-        coeff = optimize_pi(pi_arb, pi_array, coeff)
-        print("Done: {}, cumulative_r: {}, coeff1: {}\n".format(epi, cumulative_r_arb, coeff[0]))
+        new_coeff = optimize_pi(pi_arb, pi_array, coeff)
+        coeff = (1. - ALPHA_ARB) * coeff + ALPHA_ARB * new_coeff
+        # coeff = coeff + ALPHA_ARB * (GAMMA * new_coeff - coeff)
+        if epi%9 == 0:
+            print("Done: {}, cumulative_r: {}, coeff1: {}\n".format(epi, cumulative_r_arb, coeff[0]))
         
         returns_arb.append(cumulative_r_arb)
         for m in range(total_modules):
@@ -450,7 +456,7 @@ def main():
     # q4 = np.load('m4_q4.npy')
     # q5 = np.load('m5_q5.npy')
     # q_rand = np.random.rand(env1.observation_space.n, env1.action_space.n)
-    env_list = [env1, env1, env2, env3]
+    env_list = [env1, env1, env2] # index0 -> arb
     start = time.time()
     # tab_arb_returns = test_tab_arb([q4_1_vi, q4_2_vi], arb_env=env1)#q5_2, q5_3, q5_4], arb_env=env1)#, q_rand, q_rand, q_rand])
     returns_arb, returns_mods = learn_mod_arb(env_list)
@@ -483,18 +489,18 @@ def main():
     # np.save('pi_arb_greedy', pi_arb)
 
 if __name__ == "__main__":
-    # env1 = GridEnv(goal=15)
-    # env2 = GridEnv(goal=12)
+    env1 = GridEnv(goal=15)
+    env2 = GridEnv(goal=12)
     # env3 = GridEnv(goal=3)
     # env4 = GridEnv(goal=9)
     # env5 = GridEnv(goal=10)
     # env_list = [env1, env2, env3, env4, env5]
     # env1 = GridEnv(grid_size=7, goal=48)
     # env1 = GridEnv(grid_size=6, goal=35)
-    env1 = GridEnv(grid_size=5, goal=24)
-    env2 = GridEnv(grid_size=5, goal=12)
-    env3 = GridEnv(grid_size=5, goal=8)
-    total_modules = 3
+    # env1 = GridEnv(grid_size=5, goal=24)
+    # env2 = GridEnv(grid_size=5, goal=12)
+    # env3 = GridEnv(grid_size=5, goal=8)
+    total_modules = 2
     main()
 
 

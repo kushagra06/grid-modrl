@@ -143,7 +143,7 @@
 ##### With exact Q values for modules (using value iteration)
 <figure>
 <img src="./figures/arb_m2_exactq_5x5.png" alt="2 modules; stochastic policy" width="200">
-<figcaption> 2 modules</figcaption>
+<figcaption> 2 modules; 5x5</figcaption>
 </figure>
 
 
@@ -169,4 +169,23 @@
 
 * Simultaneous learning of modules and arb noisy (with tabular Q-learning and solver).
 
+* Two timescales approximation. 
 
+---
+#### May 3, 2021
+
+##### DQN for modules
+
+<figure>
+<img src="./figures/dqn_4x4.png" alt="2 modules; stochastic policy" width="200">
+<figcaption> </figcaption>
+</figure>
+
+##### Notes
+* DQN for modules done.
+* Arbitrator almost done.
+* Return instead of Q for arbitrator?
+* SAC (off policy) for arbitrator?
+* Relationship between learning rates of modules.
+* Two timescale approximation: learning rate a function of time?
+* Next: Multiple goals.
