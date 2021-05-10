@@ -8,7 +8,7 @@ import time
 # from columnar import columnar
 
 
-ALPHA_ARB = 1e-02
+ALPHA_ARB = 0.1
 GAMMA = 0.9
 
 def run(agent, n_epi=200, max_steps=500, learn=True):
@@ -153,7 +153,7 @@ def arb_loss(coeff, dsa_k, q_k, pi_array):
     for s in range(total_states):       
         i = 0
         ## e.g. for 4 modules, for s=0, indices=[0,16,32,48] -> 0 to 48 in steps of 16
-        indices = list(range(s,total_variables-total_states+s+1, total_states)) 
+        indices = list(range(s, total_variables-total_states+s+1, total_states)) 
         for a in range(total_actions):
             pi_arb = np.sum(coeff[indices] * pi_array[:,s,a])
             logpi_arb = 0 if (pi_arb<=0 or np.isinf(pi_arb) or np.isnan(pi_arb)) else np.log(pi_arb)
@@ -293,6 +293,7 @@ def learn_mod_arb(env_list, n_epi=100, max_steps=500):
             if done_arb:
                 epi_over = True
         
+        # if epi>=1:
         new_coeff = optimize_pi(pi_arb, pi_array, coeff)
         coeff = (1. - ALPHA_ARB) * coeff + ALPHA_ARB * new_coeff
         # coeff = coeff + ALPHA_ARB * (GAMMA * new_coeff - coeff)

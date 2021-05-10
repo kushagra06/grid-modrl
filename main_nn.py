@@ -153,7 +153,7 @@ def test_arb(arb_env, module_files, n_epi=1):
                 break
         
         # if epi%4 == 0:
-        arb.optimize()
+        arb.optimize(memory, pi_tensors, cumulative_r)
         returns.append(cumulative_r)
         print("epi {} over".format(epi))
 
@@ -163,13 +163,13 @@ def test_arb(arb_env, module_files, n_epi=1):
 
 def main():
     env = GridEnv()
-    # returns = run_dqn(env)
-    # plt.plot(returns)
-    # plt.show()
-    # print('Done')
+    returns = run_dqn(env)
+    plt.plot(returns)
+    plt.show()
+    print('Done')
 
-    module_files = ["./pytorch_models/dqn_4x4.pt", "./pytorch_models/dqn_4x4_g7.pt"]
-    returns = test_arb(env, module_files)
+    # module_files = ["./pytorch_models/dqn_4x4.pt", "./pytorch_models/dqn_4x4_g7.pt"]
+    # returns = test_arb(env, module_files)
 
 
 

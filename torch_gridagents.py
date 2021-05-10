@@ -3,7 +3,7 @@ import numpy as np
 import random
 import torch
 import torch.nn as nn
-# import torch.optim as optim
+import torch.optim as optim
 # import torch.nn.functional as F
 # import torch.nn.init as init
 
@@ -67,12 +67,13 @@ class Arbitrator(RLNetwork):
             nn.Linear(64, a_dim),
             nn.Softmax(dim=1)
         )
+        self.optimizer = optim.RMSprop(self.parameters())
     
     def forward(self, state: torch.Tensor):
         coeff_s = self.linear_relu_stack(state)
         return coeff_s
     
-    def optimize(self, memory):
+    def optimize(self, memory, pi_tensors, ret):
         transitions = memory.sample(len(memory))
         batch = Transition(*zip(*transitions))
 
@@ -81,10 +82,18 @@ class Arbitrator(RLNetwork):
         reward_batch = torch.cat(batch.reward)
         next_state_batch = torch.cat(batch.next_state)
 
-        loss = self.loss()
+        loss = self.loss(state_batch, pi_tensors, ret)
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
     
-    def loss(self, pi_k, coeff, q_k):
-        pi_arb = torch.sum(coeff)
+    def loss(self, state, pi_modules, q_k):
+        coeff = self.forward(state)
+        logpi = torch.log(torch.sum(coeff * pi_modules))
+        loss = - q_k * logpi
+        return loss
+
 
 
 
