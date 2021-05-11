@@ -17,9 +17,6 @@ TARGET_UPDATE = 3
 BATCH_SIZE = 8
 GAMMA = 0.9
 
-memory = ReplayMemory(10000)
-
-
 
 def get_pi(modules_list, s_dim=16, a_dim_mods=4):
     n_modules = len(modules_list)
@@ -118,44 +115,64 @@ def run_dqn(env, n_epi=50):
     # torch.save(agent.state_dict(), "./pytorch_models/dqn_4x4_g7.pt")
     return returns
 
-def test_arb(arb_env, module_files, n_epi=1):
-    n_modules = len(module_files)
-    modules_list = []
-    for i in range(n_modules):
-        m = DQNAgent()
-        m.load_state_dict(torch.load(module_files[i]))
-        m.eval()
-        modules_list.append(m)
-    
+def test_arb(arb_env, modules_list, n_epi=100, max_steps=500):
+    n_modules = len(modules_list)
     pi_tensors = get_pi(modules_list)
     s_dim, a_dim = 16, 4
-    arb = Arbitrator()
-
+    arb = Arbitrator().to(device)
+    returns = []
+    all_rets = []
+    memory = ReplayMemory(10000)
     for epi in range(n_epi):
         arb_env.reset()
-        cumulative_r = 0.
-        for t in count():
+        cumulative_r = []
+        steps = 0
+        while steps < max_steps:
             state = get_state_vector(arb_env.cur_state)
-            coeff = torch.flatten(arb(state))
+            coeff = arb(state)
             pi_k = torch.zeros(s_dim, a_dim)
             for m in range(n_modules):
-                pi_k += coeff[m] * pi_tensors[m]
+                pi_k += coeff[0][m] * pi_tensors[m]
             a = np.random.choice(4, p=pi_k[arb_env.cur_state].detach().cpu().numpy())
             s, a, s_, r, done = arb_env.step(a)
-            r = 100. if done else 1.
-            cumulative_r += r
+            r = 1.
+            cumulative_r.append(r)
             reward = torch.FloatTensor([r], device=device)
             next_state = get_state_vector(s_)
-
-            memory.push(state, coeff, next_state, reward)
+            steps += 1
+            memory.push(state, torch.FloatTensor([a], device=device), next_state, reward)
 
             if done:
+                state = get_state_vector(arb_env.cur_state)
+                coeff = arb(state)
+                pi_k = torch.zeros(s_dim, a_dim)
+                for m in range(n_modules):
+                    pi_k += coeff[0][m] * pi_tensors[m]
+
+                a = np.random.choice(4, p=pi_k[arb_env.cur_state].detach().cpu().numpy())
+                state = get_state_vector(arb_env.cur_state)
+                next_state = state
+                r = 100.
+                steps += 1
+                reward = torch.FloatTensor([r], device=device)
+                cumulative_r.append(r)
+                memory.push(state, torch.FloatTensor([a], device=device), next_state, reward)
                 break
         
-        # if epi%4 == 0:
-        arb.optimize(memory, pi_tensors, cumulative_r)
-        returns.append(cumulative_r)
+        rets = []
+        return_so_far = 0
+        for t in range(len(cumulative_r) - 1, -1, -1):
+            return_so_far = cumulative_r[t] + 0.9 * return_so_far
+            rets.append(return_so_far)                
+        # The returns are stored backwards in time, so we need to revert it
+        rets = list(reversed(rets))
+        all_rets.extend(rets)
         print("epi {} over".format(epi))
+        if epi%7==0:
+            arb.optimize(memory, pi_tensors, torch.FloatTensor(all_rets))
+            all_rets = []
+            memory = ReplayMemory(10000)
+        returns.append(sum(cumulative_r))
 
 
     return returns
@@ -163,13 +180,22 @@ def test_arb(arb_env, module_files, n_epi=1):
 
 def main():
     env = GridEnv()
-    returns = run_dqn(env)
+    # returns = run_dqn(env)
+    # plt.plot(returns)
+    # plt.show()
+    # print('Done')
+
+    module_files = ["./pytorch_models/dqn_4x4.pt", "./pytorch_models/dqn_4x4_g7.pt"]
+    modules_list = []
+    for i in range(len(module_files)):
+        m = DQNAgent()
+        m.load_state_dict(torch.load(module_files[i]))
+        m.eval()
+        modules_list.append(m)
+
+    returns = test_arb(env, modules_list)
     plt.plot(returns)
     plt.show()
-    print('Done')
-
-    # module_files = ["./pytorch_models/dqn_4x4.pt", "./pytorch_models/dqn_4x4_g7.pt"]
-    # returns = test_arb(env, module_files)
 
 
 
