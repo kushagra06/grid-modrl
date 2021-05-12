@@ -45,36 +45,6 @@ def get_state_vector(s, s_dim=16):
     x = np.expand_dims(x, 0) 
     return torch.FloatTensor(x)
 
-def optimize_model(agent, target_agent, optimizer, done):
-    if len(memory) < BATCH_SIZE:
-        return
-    
-    transitions = memory.sample(BATCH_SIZE)
-    batch = Transition(*zip(*transitions))
-
-    non_final_mask = torch.tensor(tuple(map(lambda s: s is not None, batch.next_state)), device=device, dtype=torch.bool)
-    non_final_next_states = torch.cat([s for s in batch.next_state if s is not None])
-    state_batch = torch.cat(batch.state)#.unsqueeze(1)
-    action_batch = torch.cat(batch.action)
-    reward_batch = torch.cat(batch.reward)
-
-    state_action_values = agent(state_batch).gather(dim=1, index=action_batch)
-    next_state_values = torch.zeros(BATCH_SIZE, device=device)
-    next_state_values[non_final_mask] = target_agent(non_final_next_states).max(1)[0].detach() #max Q
-
-    # print("next_state_values: ", next_state_values)
-    # print("next_state: ", batch.next_state)
-    # print("non_final_next_states: ", non_final_next_states)
-    # expected_state_action_values = reward_batch if done else reward_batch + GAMMA * next_state_values
-    expected_state_action_values = reward_batch + GAMMA * next_state_values
-
-    criterion = nn.SmoothL1Loss()
-    loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
-
-    optimizer.zero_grad()
-    loss.backward()
-    optimizer.step()
-
 
 def run_dqn(env, n_epi=50):
     agent = DQNAgent(BATCH_SIZE).to(device)
