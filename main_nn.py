@@ -9,7 +9,7 @@ import torch.nn.functional as F
 
 from torch_gridagents import DQNAgent, Arbitrator
 from grid import GridEnv
-from utils import ReplayMemory, Transition
+from utils import ReplayMemory, ReplayMemory2, Transition, Transition_done
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -33,6 +33,8 @@ def get_pi(modules_list, s_dim=16, a_dim_mods=4):
         pi_list.append(pi)
 
     return torch.stack(pi_list)
+
+
 
 def get_state_vector(s, s_dim=16):
     # if s==None:
@@ -63,8 +65,8 @@ def optimize_model(agent, target_agent, optimizer, done):
     # print("next_state_values: ", next_state_values)
     # print("next_state: ", batch.next_state)
     # print("non_final_next_states: ", non_final_next_states)
-    expected_state_action_values = reward_batch if done else reward_batch + GAMMA * next_state_values
-    # expected_state_action_values = reward_batch + GAMMA * next_state_values
+    # expected_state_action_values = reward_batch if done else reward_batch + GAMMA * next_state_values
+    expected_state_action_values = reward_batch + GAMMA * next_state_values
 
     criterion = nn.SmoothL1Loss()
     loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
@@ -115,9 +117,15 @@ def run_dqn(env, n_epi=50):
     # torch.save(agent.state_dict(), "./pytorch_models/dqn_4x4_g7.pt")
     return returns
 
-def test_arb(arb_env, modules_list, n_epi=100, max_steps=500):
+def test_arb(arb_env, modules_list, n_epi=250, max_steps=500):
     n_modules = len(modules_list)
     pi_tensors = get_pi(modules_list)
+    # print(pi_tensors )
+    # pi_list = [] 
+    # pi_list.append(torch.from_numpy(modules_list[0]))
+    # pi_list.append(torch.from_numpy(modules_list[1]))
+    # pi_tensors = torch.stack(pi_list)
+
     s_dim, a_dim = 16, 4
     arb = Arbitrator().to(device)
     returns = []
@@ -135,7 +143,6 @@ def test_arb(arb_env, modules_list, n_epi=100, max_steps=500):
                 pi_k += coeff[0][m] * pi_tensors[m]
             a = np.random.choice(4, p=pi_k[arb_env.cur_state].detach().cpu().numpy())
             s, a, s_, r, done = arb_env.step(a)
-            r = 1.
             cumulative_r.append(r)
             reward = torch.FloatTensor([r], device=device)
             next_state = get_state_vector(s_)
@@ -178,24 +185,94 @@ def test_arb(arb_env, modules_list, n_epi=100, max_steps=500):
     return returns
 
 
+def learn_mod_arb(env_list, n_epi=100, max_steps=500):
+    n_modules = len(env_list[1:])
+    s_dim, a_dim = 16, 4
+    returns_arb = []
+    arb_env = env_list[0]
+    arb = Arbitrator().to(device)
+    arb_memory = ReplayMemory2(1000)
+    mods_agents = []
+    mods_target_agents = []
+    mods_memory = []
+    for i in range(n_modules):
+        mods_agents.append(DQNAgent().to(device))
+        mods_memory.append(ReplayMemory2(1000))
+        mods_target_agents.append(DQNAgent().to(device))
+        mods_target_agents[i].load_state_dict(mods_agents[i].state_dict())
+        mods_target_agents[i].eval()
+    
+    for epi in range(n_epi):
+        step = 0
+        for env in env_list:
+            env.reset()
+        cumulative_r = []
+        while step < max_steps:
+            #state, action, next_state, reward, done: Tensors
+            #s,a,s_,r,done: numbers
+            state = get_state_vector(arb_env.cur_state)
+            coeff = arb(state)
+            q_vals = [mods_agents[m](state) for m in range(n_modules)]
+            pi_s_mods = [F.softmax(q_s, dim=1) for q_s in q_vals]
+            pi_s_tensor = torch.Tensor(a_dim)
+            for m in range(n_modules):
+                pi_s_tensor += coeff[m] * pi_s_mods[m]
+            
+            pi_s_np = pi_s_tensor.detach().cpu().numpy()
+            a_arb = np.random.choice(4, p=pi_s_np[arb_env.cur_state])
+            s_arb, a_arb, new_s_arb, r_arb, done_arb = arb_env.step(a_arb)
+            cumulative_r_arb.append(r_arb)
+            step += 1
+            action_arb = torch.FloatTensor([a_arb], device=device)
+            next_state_arb = get_state_vector(new_s_arb)
+            reward_arb = torch.FloatTensor([r_arb], device=device)
+            done_arb = torch.Tensor([done], device=device)
+            arb_memory.push(state, action_arb, next_state_arb, reward_arb, done_arb)
+
+            for m in range(total_modules):
+                s, a, s_, r, done = env_list[m+1].env.step(a_arb)
+                reward = torch.FloatTensor([r], device=device)
+                next_state = get_state_vector(s_)
+                action = torch.FloatTensor([a], device=device)
+                done = torch.Tensor([done], device=device)
+                mods_memory[m].push(state, action, next_state, reward, done)
+                #mods_agents[m] -> optimize
+                #change dqn model to include optimizer and optimize
+            
+
+        
+        
+
+
 def main():
     env = GridEnv()
     # returns = run_dqn(env)
-    # plt.plot(returns)
-    # plt.show()
     # print('Done')
 
-    module_files = ["./pytorch_models/dqn_4x4.pt", "./pytorch_models/dqn_4x4_g7.pt"]
-    modules_list = []
-    for i in range(len(module_files)):
-        m = DQNAgent()
-        m.load_state_dict(torch.load(module_files[i]))
-        m.eval()
-        modules_list.append(m)
+    # pi_1 = np.load('./npy_files/m1_pi.npy')
+    # pi_2 = np.load('./npy_files/m2_pi.npy')
+    # modules_list = [pi_1,pi_2]
 
-    returns = test_arb(env, modules_list)
+
+    # module_files = ["./pytorch_models/dqn_4x4.pt", "./pytorch_models/dqn_4x4_g7.pt"]
+    # modules_list = []
+    # for i in range(len(module_files)):
+    #     m = DQNAgent()
+    #     m.load_state_dict(torch.load(module_files[i]))
+    #     m.eval()
+    #     modules_list.append(m)
+    # returns = test_arb(env, modules_list)
+
+
+    env1 = GridEnv()
+    env2 = GridEnv(goal=7)
+    env_list = [evn1, env1, env2]
+
+    returns = learn_mod_arb(env_list)
     plt.plot(returns)
     plt.show()
+
+
 
 
 

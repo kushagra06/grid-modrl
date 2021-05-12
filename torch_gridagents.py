@@ -46,6 +46,8 @@ class DQNAgent(RLNetwork):
             nn.ReLU(inplace=True),
             nn.Linear(64, a_dim)
         )
+        self.optimizer = optim.RMSprop(self.parameters(), lr=0.1)
+
     
     # Called with either one element to determine next action, or a batch during optimization.
     def forward(self, state: torch.Tensor):
@@ -61,6 +63,36 @@ class DQNAgent(RLNetwork):
         else:
             return torch.tensor([[random.randrange(a_dim)]], device=device, dtype=torch.long)
 
+    def optimize_model(self, memory, target_agent, done):
+        if len(memory) < BATCH_SIZE:
+            return
+        
+        transitions = memory.sample(BATCH_SIZE)
+        batch = Transition(*zip(*transitions))
+
+        non_final_mask = torch.tensor(tuple(map(lambda s: s is not None, batch.next_state)), device=device, dtype=torch.bool)
+        non_final_next_states = torch.cat([s for s in batch.next_state if s is not None])
+        state_batch = torch.cat(batch.state)#.unsqueeze(1)
+        action_batch = torch.cat(batch.action)
+        reward_batch = torch.cat(batch.reward)
+
+        state_action_values = self.forward(state_batch).gather(dim=1, index=action_batch)
+        next_state_values = torch.zeros(BATCH_SIZE, device=device)
+        next_state_values[non_final_mask] = target_agent(non_final_next_states).max(1)[0].detach() #max Q
+
+        # print("next_state_values: ", next_state_values)
+        # print("next_state: ", batch.next_state)
+        # print("non_final_next_states: ", non_final_next_states)
+        # expected_state_action_values = reward_batch if done else reward_batch + GAMMA * next_state_values
+        expected_state_action_values = reward_batch + GAMMA * next_state_values
+
+        criterion = nn.SmoothL1Loss()
+        loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
 
 class Arbitrator(RLNetwork):
     def __init__(self, batch_size=8, a_dim=2, s_dim=16):
@@ -73,7 +105,7 @@ class Arbitrator(RLNetwork):
             nn.Linear(64, a_dim),
             nn.Softmax(dim=1)
         )
-        self.optimizer = optim.RMSprop(self.parameters(), lr=0.001)
+        self.optimizer = optim.RMSprop(self.parameters(), lr=0.005)
     
     def forward(self, state: torch.Tensor):
         coeff_s = self.linear_relu_stack(state)
