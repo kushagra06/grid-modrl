@@ -63,7 +63,7 @@ class DQNAgent(RLNetwork):
         else:
             return torch.tensor([[random.randrange(a_dim)]], device=device, dtype=torch.long)
 
-    def optimize_model(self, memory, target_agent, done):
+    def optimize_model(self, memory, target_agent):
         if len(memory) < BATCH_SIZE:
             return
         
@@ -75,6 +75,7 @@ class DQNAgent(RLNetwork):
         state_batch = torch.cat(batch.state)#.unsqueeze(1)
         action_batch = torch.cat(batch.action)
         reward_batch = torch.cat(batch.reward)
+        done_batch = torch.cat(batch.done)
 
         state_action_values = self.forward(state_batch).gather(dim=1, index=action_batch)
         next_state_values = torch.zeros(BATCH_SIZE, device=device)
@@ -84,7 +85,7 @@ class DQNAgent(RLNetwork):
         # print("next_state: ", batch.next_state)
         # print("non_final_next_states: ", non_final_next_states)
         # expected_state_action_values = reward_batch if done else reward_batch + GAMMA * next_state_values
-        expected_state_action_values = reward_batch + GAMMA * next_state_values
+        expected_state_action_values = reward_batch + GAMMA * next_state_values * (1. - done_batch)
 
         criterion = nn.SmoothL1Loss()
         loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))

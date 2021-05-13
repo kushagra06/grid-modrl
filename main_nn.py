@@ -176,10 +176,10 @@ def learn_mod_arb(env_list, n_epi=100, max_steps=500):
         step = 0
         for env in env_list:
             env.reset()
-        cumulative_r = []
+        cumulative_r_arb = []
         while step < max_steps:
-            #state, action, next_state, reward, done: Tensors
-            #s,a,s_,r,done: numbers
+            # state, action, next_state, reward, done: Tensors
+            # s, a, s_ ,r , done: numbers
             state = get_state_vector(arb_env.cur_state)
             coeff = arb(state)
             q_vals = [mods_agents[m](state) for m in range(n_modules)]
@@ -199,15 +199,19 @@ def learn_mod_arb(env_list, n_epi=100, max_steps=500):
             done_arb = torch.Tensor([done], device=device)
             arb_memory.push(state, action_arb, next_state_arb, reward_arb, done_arb)
 
-            for m in range(total_modules):
+            for m in range(n_modules):
                 s, a, s_, r, done = env_list[m+1].env.step(a_arb)
                 reward = torch.FloatTensor([r], device=device)
                 next_state = get_state_vector(s_)
                 action = torch.FloatTensor([a], device=device)
                 done = torch.Tensor([done], device=device)
                 mods_memory[m].push(state, action, next_state, reward, done)
-                #mods_agents[m] -> optimize
-                #change dqn model to include optimizer and optimize
+                mods_agents[m].optimize_model(mods_memory[m], mods_target_agents[m])
+        
+        # arb.optimize(arb_memory, )
+        # change loss function since it uses tabular policy
+        
+
             
 
         
