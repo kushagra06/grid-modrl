@@ -4,12 +4,12 @@ import random
 import torch
 import torch.nn as nn
 import torch.optim as optim
-# import torch.nn.functional as F
+import torch.nn.functional as F
 # import torch.nn.init as init
 
 from typing import Tuple, Callable
 
-from utils import ReplayMemory, Transition
+from utils import ReplayMemory, Transition, Transition_done, ReplayMemory2
 
 EPS_START = 0.9
 EPS_END = 0.05
@@ -39,14 +39,23 @@ class RLNetwork(nn.Module):
 class DQNAgent(RLNetwork):
     def __init__(self, batch_size=8, a_dim=4, s_dim=16):
         super().__init__()
+        # self.linear_relu_stack = nn.Sequential(
+        #     nn.Linear(s_dim, 64),
+        #     nn.ReLU(inplace=True),
+        #     nn.Linear(64, 64),
+        #     nn.ReLU(inplace=True),
+        #     nn.Linear(64, a_dim)
+        # )
         self.linear_relu_stack = nn.Sequential(
             nn.Linear(s_dim, 64),
-            nn.ReLU(inplace=True),
+            nn.Softplus(),
             nn.Linear(64, 64),
-            nn.ReLU(inplace=True),
-            nn.Linear(64, a_dim)
+            nn.Softplus(),
+            nn.Linear(64, a_dim),
+            nn.Softplus()
         )
         self.optimizer = optim.RMSprop(self.parameters(), lr=0.1)
+        self.batch_size = batch_size
 
     
     # Called with either one element to determine next action, or a batch during optimization.
@@ -64,11 +73,11 @@ class DQNAgent(RLNetwork):
             return torch.tensor([[random.randrange(a_dim)]], device=device, dtype=torch.long)
 
     def optimize_model(self, memory, target_agent):
-        if len(memory) < BATCH_SIZE:
+        if len(memory) < self.batch_size:
             return
         
-        transitions = memory.sample(BATCH_SIZE)
-        batch = Transition(*zip(*transitions))
+        transitions = memory.sample(self.batch_size)
+        batch = Transition_done(*zip(*transitions))
 
         non_final_mask = torch.tensor(tuple(map(lambda s: s is not None, batch.next_state)), device=device, dtype=torch.bool)
         non_final_next_states = torch.cat([s for s in batch.next_state if s is not None])
@@ -112,23 +121,26 @@ class Arbitrator(RLNetwork):
         coeff_s = self.linear_relu_stack(state)
         return coeff_s
     
-    def optimize(self, memory, pi_tensors, ret):
+    def optimize(self, memory, mods_agents, ret, nn=True):
         transitions = []
         for i in range(len(memory)):
             transitions.append(memory.memory.popleft())
-        batch = Transition(*zip(*transitions))
+        batch = Transition_done(*zip(*transitions))
         state_batch = torch.cat(batch.state)
         action_batch = torch.cat(batch.action)
         reward_batch = torch.cat(batch.reward)
         next_state_batch = torch.cat(batch.next_state)
 
         self.optimizer.zero_grad()
-        loss = self.loss(state_batch, action_batch, pi_tensors, ret)
+        if nn:
+            loss = self.loss2(state_batch, action_batch, mods_agents, ret)
+        else:
+            loss = self.loss1(state_batch, action_batch, mods_agents, ret)
         loss.backward(retain_graph=True)
         self.optimizer.step()
 
     ## change
-    def loss(self, state, action, pi_modules, q_k):
+    def loss1(self, state, action, pi_modules, q_k):
         s_dim, a_dim = 16, 4
         n_modules = pi_modules.size()[0]
         coeff = self.forward(state)
@@ -145,7 +157,27 @@ class Arbitrator(RLNetwork):
 
         return -loss
 
+    def loss2(self, state, action, mods_agents, q_k=10):
+        s_dim, a_dim = 16, 4
+        n_states = state.shape[0]
+        n_modules = len(mods_agents)
+        coeff = self.forward(state)
+        q_vals = [mods_agents[m](state) for m in range(n_modules)]
+        pi_mods = [F.softmax(q_s, dim=1) for q_s in q_vals]
+        pi_mods_tensors = torch.stack(pi_mods)
+        action = action.type(torch.LongTensor) #index doesn't take in FloatTensor so typecast into LongTensor
+        action = action.expand(n_modules, -1) # Repeating actions for all modules
+        action = action.unsqueeze(-1) # matching dims of action and pi_mods_tensors
+        pi_mods_sa = torch.gather(pi_mods_tensors, dim=2, index=action) # picking action vals according to the sampled actions
+        pi_mods_sa = pi_mods_sa.squeeze(-1) # matching dims with coeff 
+        
+        loss = 0.
+        for s in range(n_states):
+            for m in range(n_modules):
+                pi_arb = torch.sum(coeff[s, m] * pi_mods_sa[m, s])
+            loss += q_k * torch.log(pi_arb + 1e-8)
 
+        return loss
 
 
 

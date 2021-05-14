@@ -35,11 +35,7 @@ def get_pi(modules_list, s_dim=16, a_dim_mods=4):
     return torch.stack(pi_list)
 
 
-
-def get_state_vector(s, s_dim=16):
-    # if s==None:
-    #     return torch.full((s_dim,), fill_value=None, dtype=None)
-    
+def get_state_vector(s, s_dim=16):    
     x = np.zeros(s_dim)
     x[s] = 1.
     x = np.expand_dims(x, 0) 
@@ -155,7 +151,7 @@ def test_arb(arb_env, modules_list, n_epi=250, max_steps=500):
     return returns
 
 
-def learn_mod_arb(env_list, n_epi=100, max_steps=500):
+def learn_mod_arb(env_list, n_epi=10, max_steps=500):
     n_modules = len(env_list[1:])
     s_dim, a_dim = 16, 4
     returns_arb = []
@@ -184,39 +180,37 @@ def learn_mod_arb(env_list, n_epi=100, max_steps=500):
             coeff = arb(state)
             q_vals = [mods_agents[m](state) for m in range(n_modules)]
             pi_s_mods = [F.softmax(q_s, dim=1) for q_s in q_vals]
-            pi_s_tensor = torch.Tensor(a_dim)
+            pi_s_tensor = torch.zeros((1, a_dim))
             for m in range(n_modules):
-                pi_s_tensor += coeff[m] * pi_s_mods[m]
+                pi_s_tensor += coeff[0][m] * pi_s_mods[m]
             
-            pi_s_np = pi_s_tensor.detach().cpu().numpy()
-            a_arb = np.random.choice(4, p=pi_s_np[arb_env.cur_state])
-            s_arb, a_arb, new_s_arb, r_arb, done_arb = arb_env.step(a_arb)
+            pi_s_np = pi_s_tensor.flatten().detach().cpu().numpy()
+            a_arb = np.random.choice(4, p=pi_s_np)
+            s_arb, a_arb, new_s_arb, r_arb, done_ar = arb_env.step(a_arb)
             cumulative_r_arb.append(r_arb)
             step += 1
             action_arb = torch.FloatTensor([a_arb], device=device)
             next_state_arb = get_state_vector(new_s_arb)
             reward_arb = torch.FloatTensor([r_arb], device=device)
-            done_arb = torch.Tensor([done], device=device)
+            done_arb = torch.Tensor([done_ar], device=device)
             arb_memory.push(state, action_arb, next_state_arb, reward_arb, done_arb)
 
             for m in range(n_modules):
-                s, a, s_, r, done = env_list[m+1].env.step(a_arb)
+                s, a, s_, r, done = env_list[m+1].step(a_arb)
                 reward = torch.FloatTensor([r], device=device)
                 next_state = get_state_vector(s_)
                 action = torch.FloatTensor([a], device=device)
                 done = torch.Tensor([done], device=device)
                 mods_memory[m].push(state, action, next_state, reward, done)
-                mods_agents[m].optimize_model(mods_memory[m], mods_target_agents[m])
-        
-        # arb.optimize(arb_memory, )
-        # change loss function since it uses tabular policy
-        
+                # mods_agents[m].optimize_model(mods_memory[m], mods_target_agents[m])
 
-            
+            if done_ar:
+                break
 
-        
-        
+        arb.optimize(arb_memory, mods_agents, 0)
 
+        return 0
+        
 
 def main():
     env = GridEnv()
@@ -240,11 +234,11 @@ def main():
 
     env1 = GridEnv()
     env2 = GridEnv(goal=7)
-    env_list = [evn1, env1, env2]
+    env_list = [env1, env1, env2]
 
     returns = learn_mod_arb(env_list)
-    plt.plot(returns)
-    plt.show()
+    # plt.plot(returns)
+    # plt.show()
 
 
 
