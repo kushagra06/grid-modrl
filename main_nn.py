@@ -84,22 +84,17 @@ def run_dqn(env, n_epi=50):
     return returns
 
 def test_arb(arb_env, modules_list, n_epi=250, max_steps=500):
+    s_dim, a_dim = 16, 4 
     n_modules = len(modules_list)
+    
     pi_tensors = get_pi(modules_list)
-    # print(pi_tensors )
-    # pi_list = [] 
-    # pi_list.append(torch.from_numpy(modules_list[0]))
-    # pi_list.append(torch.from_numpy(modules_list[1]))
-    # pi_tensors = torch.stack(pi_list)
-
-    s_dim, a_dim = 16, 4
     arb = Arbitrator().to(device)
     returns = []
     all_rets = []
     memory = ReplayMemory(10000)
     for epi in range(n_epi):
         arb_env.reset()
-        cumulative_r = []
+        r_list = []
         steps = 0
         while steps < max_steps:
             state = get_state_vector(arb_env.cur_state)
@@ -109,7 +104,7 @@ def test_arb(arb_env, modules_list, n_epi=250, max_steps=500):
                 pi_k += coeff[0][m] * pi_tensors[m]
             a = np.random.choice(4, p=pi_k[arb_env.cur_state].detach().cpu().numpy())
             s, a, s_, r, done = arb_env.step(a)
-            cumulative_r.append(r)
+            r_list.append(r)
             reward = torch.FloatTensor([r], device=device)
             next_state = get_state_vector(s_)
             steps += 1
@@ -123,19 +118,19 @@ def test_arb(arb_env, modules_list, n_epi=250, max_steps=500):
                     pi_k += coeff[0][m] * pi_tensors[m]
 
                 a = np.random.choice(4, p=pi_k[arb_env.cur_state].detach().cpu().numpy())
-                state = get_state_vector(arb_env.cur_state)
+                # state = get_state_vector(arb_env.cur_state)
                 next_state = state
                 r = 100.
                 steps += 1
                 reward = torch.FloatTensor([r], device=device)
-                cumulative_r.append(r)
+                r_list.append(r)
                 memory.push(state, torch.FloatTensor([a], device=device), next_state, reward)
                 break
         
         rets = []
         return_so_far = 0
-        for t in range(len(cumulative_r) - 1, -1, -1):
-            return_so_far = cumulative_r[t] + 0.9 * return_so_far
+        for t in range(len(r_list) - 1, -1, -1):
+            return_so_far = r_list[t] + 0.9 * return_so_far
             rets.append(return_so_far)                
         # The returns are stored backwards in time, so we need to revert it
         rets = list(reversed(rets))
@@ -145,13 +140,13 @@ def test_arb(arb_env, modules_list, n_epi=250, max_steps=500):
             arb.optimize(memory, pi_tensors, torch.FloatTensor(all_rets))
             all_rets = []
             memory = ReplayMemory(10000)
-        returns.append(sum(cumulative_r))
+        returns.append(sum(r_list))
 
 
     return returns
 
 
-def learn_mod_arb(env_list, n_epi=10, max_steps=500):
+def learn_mod_arb(env_list, n_epi=500, max_steps=500):
     n_modules = len(env_list[1:])
     s_dim, a_dim = 16, 4
     returns_arb = []
@@ -168,11 +163,13 @@ def learn_mod_arb(env_list, n_epi=10, max_steps=500):
         mods_target_agents[i].load_state_dict(mods_agents[i].state_dict())
         mods_target_agents[i].eval()
     
+    all_rets = []
+    returns = []
     for epi in range(n_epi):
         step = 0
         for env in env_list:
             env.reset()
-        cumulative_r_arb = []
+        r_list = []
         while step < max_steps:
             # state, action, next_state, reward, done: Tensors
             # s, a, s_ ,r , done: numbers
@@ -187,29 +184,95 @@ def learn_mod_arb(env_list, n_epi=10, max_steps=500):
             pi_s_np = pi_s_tensor.flatten().detach().cpu().numpy()
             a_arb = np.random.choice(4, p=pi_s_np)
             s_arb, a_arb, new_s_arb, r_arb, done_ar = arb_env.step(a_arb)
-            cumulative_r_arb.append(r_arb)
+            r_list.append(r_arb)
             step += 1
-            action_arb = torch.FloatTensor([a_arb], device=device)
+            action_arb = torch.LongTensor([a_arb], device=device)
             next_state_arb = get_state_vector(new_s_arb)
             reward_arb = torch.FloatTensor([r_arb], device=device)
             done_arb = torch.Tensor([done_ar], device=device)
-            arb_memory.push(state, action_arb, next_state_arb, reward_arb, done_arb)
 
             for m in range(n_modules):
-                s, a, s_, r, done = env_list[m+1].step(a_arb)
+                s, a, s_, r, d = env_list[m+1].step(a_arb)
                 reward = torch.FloatTensor([r], device=device)
                 next_state = get_state_vector(s_)
-                action = torch.FloatTensor([a], device=device)
-                done = torch.Tensor([done], device=device)
-                mods_memory[m].push(state, action, next_state, reward, done)
-                # mods_agents[m].optimize_model(mods_memory[m], mods_target_agents[m])
+                action = torch.LongTensor([[a]], device=device)
+                done = torch.Tensor([d], device=device)
+                if d:
+                    d = 0.
+                    done = torch.Tensor([d], device=device)
+                    mods_memory[m].push(state, action, next_state, reward, done)
+                    mods_agents[m].optimize_model(mods_memory[m], mods_target_agents[m])
+                    d = 1.
+                    done = torch.Tensor([d], device=device)
+
+                    state = get_state_vector(env_list[m+1].cur_state)
+                    coeff = arb(state)
+                    q_vals = [mods_agents[m](state) for m in range(n_modules)]
+                    pi_s_mods = [F.softmax(q_s, dim=1) for q_s in q_vals]
+                    pi_s_tensor = torch.zeros((1, a_dim))
+                    for m in range(n_modules):
+                        pi_s_tensor += coeff[0][m] * pi_s_mods[m]
+                    
+                    pi_s_np = pi_s_tensor.flatten().detach().cpu().numpy()
+                    a_arb = np.random.choice(4, p=pi_s_np)
+                    
+                    action = torch.LongTensor([[a_arb]], device=device)
+                    next_state = state
+                    r = 100.
+                    reward = torch.FloatTensor([r], device=device)
+                    mods_memory[m].push(state, action, next_state, reward, done)
+                    mods_agents[m].optimize_model(mods_memory[m], mods_target_agents[m])
+                else:
+                    mods_memory[m].push(state, action, next_state, reward, done)
+                    mods_agents[m].optimize_model(mods_memory[m], mods_target_agents[m])
 
             if done_ar:
+                done_ar = 0.
+                done_arb = torch.Tensor([done_ar], device=device)
+                arb_memory.push(state, action_arb, next_state_arb, reward_arb, done_arb)
+                done_ar = 1.
+                
+                state = get_state_vector(arb_env.cur_state)
+                coeff = arb(state)
+                q_vals = [mods_agents[m](state) for m in range(n_modules)]
+                pi_s_mods = [F.softmax(q_s, dim=1) for q_s in q_vals]
+                pi_s_tensor = torch.zeros((1, a_dim))
+                for m in range(n_modules):
+                    pi_s_tensor += coeff[0][m] * pi_s_mods[m]
+                
+                pi_s_np = pi_s_tensor.flatten().detach().cpu().numpy()
+                a_arb = np.random.choice(4, p=pi_s_np)
+                action_arb = torch.LongTensor([a_arb], device=device)
+                next_state_arb = state
+                r_arb = 100.
+                r_list.append(r_arb)
+                reward_arb = torch.FloatTensor([r_arb], device=device)
+                done_arb = torch.Tensor([done_ar], device=device)
+                step +=1
+                arb_memory.push(state, action_arb, next_state_arb, reward_arb, done_arb)
                 break
+            else:
+                arb_memory.push(state, action_arb, next_state_arb, reward_arb, done_arb)
+            
+        rets = []
+        return_so_far = 0
+        for t in range(len(r_list) - 1, -1, -1):
+            return_so_far = r_list[t] + 0.9 * return_so_far
+            rets.append(return_so_far)                
+        # The returns are stored backwards in time, so we need to revert it
+        rets = list(reversed(rets))
+        all_rets.extend(rets)
+        if epi%7==0:
+            arb.optimize(arb_memory, mods_agents, torch.FloatTensor(all_rets))
+            all_rets = []
+            arb_memory = ReplayMemory2(1000)
 
-        arb.optimize(arb_memory, mods_agents, 0)
+        returns.append(sum(r_list))
 
-        return 0
+        if epi%100==0:
+            print("epi {} done".format(epi))
+    
+    return returns
         
 
 def main():
@@ -237,13 +300,8 @@ def main():
     env_list = [env1, env1, env2]
 
     returns = learn_mod_arb(env_list)
-    # plt.plot(returns)
-    # plt.show()
-
-
-
-
-
+    plt.plot(returns)
+    plt.show()
 
 
 if __name__ == "__main__":

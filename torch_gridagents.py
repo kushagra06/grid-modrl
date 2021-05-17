@@ -14,13 +14,15 @@ from utils import ReplayMemory, Transition, Transition_done, ReplayMemory2
 EPS_START = 0.9
 EPS_END = 0.05
 EPS_DECAY = 200
+TARGET_UPDATE = 3
+BATCH_SIZE = 8
+GAMMA = 0.9
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def vector_to_number(state):
     numbers = torch.nonzero(state==1, as_tuple=False)
     ans = torch.index_select(numbers, dim=1, index=torch.LongTensor([1]))#select col=1
     return ans.flatten()
-    # np_state = state.detach().cpu().numpy()
 
 class RLNetwork(nn.Module):
     def __init__(self):
@@ -54,7 +56,7 @@ class DQNAgent(RLNetwork):
             nn.Linear(64, a_dim),
             nn.Softplus()
         )
-        self.optimizer = optim.RMSprop(self.parameters(), lr=0.1)
+        self.optimizer = optim.RMSprop(self.parameters(), lr=0.01)
         self.batch_size = batch_size
 
     
@@ -81,18 +83,15 @@ class DQNAgent(RLNetwork):
 
         non_final_mask = torch.tensor(tuple(map(lambda s: s is not None, batch.next_state)), device=device, dtype=torch.bool)
         non_final_next_states = torch.cat([s for s in batch.next_state if s is not None])
-        state_batch = torch.cat(batch.state)#.unsqueeze(1)
+        state_batch = torch.cat(batch.state)
         action_batch = torch.cat(batch.action)
         reward_batch = torch.cat(batch.reward)
         done_batch = torch.cat(batch.done)
 
         state_action_values = self.forward(state_batch).gather(dim=1, index=action_batch)
-        next_state_values = torch.zeros(BATCH_SIZE, device=device)
+        next_state_values = torch.zeros(self.batch_size, device=device)
         next_state_values[non_final_mask] = target_agent(non_final_next_states).max(1)[0].detach() #max Q
 
-        # print("next_state_values: ", next_state_values)
-        # print("next_state: ", batch.next_state)
-        # print("non_final_next_states: ", non_final_next_states)
         # expected_state_action_values = reward_batch if done else reward_batch + GAMMA * next_state_values
         expected_state_action_values = reward_batch + GAMMA * next_state_values * (1. - done_batch)
 
@@ -115,7 +114,7 @@ class Arbitrator(RLNetwork):
             nn.Linear(64, a_dim),
             nn.Softmax(dim=1)
         )
-        self.optimizer = optim.RMSprop(self.parameters(), lr=0.005)
+        self.optimizer = optim.RMSprop(self.parameters(), lr=0.00001)
     
     def forward(self, state: torch.Tensor):
         coeff_s = self.linear_relu_stack(state)
@@ -139,7 +138,7 @@ class Arbitrator(RLNetwork):
         loss.backward(retain_graph=True)
         self.optimizer.step()
 
-    ## change
+
     def loss1(self, state, action, pi_modules, q_k):
         s_dim, a_dim = 16, 4
         n_modules = pi_modules.size()[0]
@@ -165,7 +164,6 @@ class Arbitrator(RLNetwork):
         q_vals = [mods_agents[m](state) for m in range(n_modules)]
         pi_mods = [F.softmax(q_s, dim=1) for q_s in q_vals]
         pi_mods_tensors = torch.stack(pi_mods)
-        action = action.type(torch.LongTensor) #index doesn't take in FloatTensor so typecast into LongTensor
         action = action.expand(n_modules, -1) # Repeating actions for all modules
         action = action.unsqueeze(-1) # matching dims of action and pi_mods_tensors
         pi_mods_sa = torch.gather(pi_mods_tensors, dim=2, index=action) # picking action vals according to the sampled actions
@@ -175,7 +173,7 @@ class Arbitrator(RLNetwork):
         for s in range(n_states):
             for m in range(n_modules):
                 pi_arb = torch.sum(coeff[s, m] * pi_mods_sa[m, s])
-            loss += q_k * torch.log(pi_arb + 1e-8)
+            loss += q_k[s] * torch.log(pi_arb + 1e-8)
 
         return loss
 
