@@ -56,7 +56,7 @@ class DQNAgent(RLNetwork):
             nn.Linear(64, a_dim),
             nn.Softplus()
         )
-        self.optimizer = optim.RMSprop(self.parameters(), lr=0.01)
+        self.optimizer = optim.RMSprop(self.parameters(), lr=0.1)
         self.batch_size = batch_size
 
     
@@ -86,11 +86,13 @@ class DQNAgent(RLNetwork):
         state_batch = torch.cat(batch.state)
         action_batch = torch.cat(batch.action)
         reward_batch = torch.cat(batch.reward)
+        next_state_batch = torch.cat(batch.next_state)
         done_batch = torch.cat(batch.done)
 
         state_action_values = self.forward(state_batch).gather(dim=1, index=action_batch)
         next_state_values = torch.zeros(self.batch_size, device=device)
-        next_state_values[non_final_mask] = target_agent(non_final_next_states).max(1)[0].detach() #max Q
+        next_state_values = target_agent(next_state_batch).max(1)[0].detach()
+        # next_state_values[non_final_mask] = target_agent(non_final_next_states).max(1)[0].detach() #max Q
 
         # expected_state_action_values = reward_batch if done else reward_batch + GAMMA * next_state_values
         expected_state_action_values = reward_batch + GAMMA * next_state_values * (1. - done_batch)
@@ -114,7 +116,7 @@ class Arbitrator(RLNetwork):
             nn.Linear(64, a_dim),
             nn.Softmax(dim=1)
         )
-        self.optimizer = optim.RMSprop(self.parameters(), lr=0.00001)
+        self.optimizer = optim.RMSprop(self.parameters(), lr=0.0001)
     
     def forward(self, state: torch.Tensor):
         coeff_s = self.linear_relu_stack(state)

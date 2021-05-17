@@ -13,7 +13,7 @@ from utils import ReplayMemory, ReplayMemory2, Transition, Transition_done
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-TARGET_UPDATE = 3
+TARGET_UPDATE = 4
 BATCH_SIZE = 8
 GAMMA = 0.9
 
@@ -225,6 +225,9 @@ def learn_mod_arb(env_list, n_epi=500, max_steps=500):
                 else:
                     mods_memory[m].push(state, action, next_state, reward, done)
                     mods_agents[m].optimize_model(mods_memory[m], mods_target_agents[m])
+                
+                if epi % TARGET_UPDATE == 0:
+                    mods_target_agents[m].load_state_dict(mods_agents[m].state_dict())
 
             if done_ar:
                 done_ar = 0.
