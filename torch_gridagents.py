@@ -116,11 +116,12 @@ class Arbitrator(RLNetwork):
             nn.Linear(64, a_dim),
             nn.Softmax(dim=1)
         )
-        self.optimizer = optim.RMSprop(self.parameters(), lr=0.0001)
+        self.optimizer = optim.RMSprop(self.parameters(), lr=0.001)
     
     def forward(self, state: torch.Tensor):
         coeff_s = self.linear_relu_stack(state)
         return coeff_s
+    
     
     def optimize(self, memory, mods_agents, ret, nn=True):
         transitions = []
