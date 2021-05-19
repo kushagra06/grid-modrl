@@ -23,6 +23,19 @@ BATCH_SIZE = 8
 GAMMA = 0.9
 
 
+
+def get_epsgreedy_dist(q_vals, steps, a_dim=4):
+    n_modules = len(q_vals)
+    eps = EPS_END + (EPS_START - EPS_END) * math.exp(-1. * steps / EPS_DECAY)
+    pi = []
+    for m in range(n_modules):
+        a_star = q_vals[m].argmax().item()
+        pi_s_a = [eps/a_dim if a!=a_star else 1.-3*eps/a_dim for a in range(a_dim)]
+        pi.append(torch.tensor(pi_s_a, device=device))
+
+    return pi
+
+
 def get_pi_epsgreedy(q_vals, steps, a_dim=4):
     n_modules = len(q_vals)
     sample = random.random()
@@ -193,23 +206,26 @@ def learn_mod_arb(env_list, n_epi=500, max_steps=500):
         for env in env_list:
             env.reset()
         r_list = []
-        mod_r_list = [[] for _ in range(n_modules)] 
+        mod_r_list = [[] for _ in range(n_modules)]
+        flag = [0] * n_modules 
         while step < max_steps:
             # state, action, next_state, reward, done: Tensors
             # s, a, s_ ,r , done: numbers
             state = get_state_vector(arb_env.cur_state)
             coeff = arb(state)
             q_vals = [mods_agents[m](state) for m in range(n_modules)]
-            pi_s_mods = get_pi_epsgreedy(q_vals, total_steps)
-            a_arb = torch.sum(coeff * pi_s_mods)
-            a_arb = torch.round(a_arb).item()
-            # pi_s_mods = [F.softmax(q_s, dim=1) for q_s in q_vals]
-            # pi_s_tensor = torch.zeros((1, a_dim))
-            # for m in range(n_modules):
-            #     pi_s_tensor += coeff[0][m] * pi_s_mods[m]
+            # pi_s_mods = get_pi_epsgreedy(q_vals, total_steps)
+            # a_arb = torch.sum(coeff * pi_s_mods)
+            # a_arb = torch.round(a_arb).item()
             
-            # pi_s_np = pi_s_tensor.flatten().detach().cpu().numpy()
-            # a_arb = np.random.choice(4, p=pi_s_np)
+            pi_s_mods = get_epsgreedy_dist(q_vals, total_steps)
+            # pi_s_mods = [F.softmax(q_s, dim=1) for q_s in q_vals]
+            pi_s_tensor = torch.zeros(a_dim)
+            for m in range(n_modules):
+                pi_s_tensor += coeff[0][m] * pi_s_mods[m]
+            
+            pi_s_np = pi_s_tensor.detach().cpu().numpy()
+            a_arb = np.random.choice(4, p=pi_s_np)
 
             s_arb, a_arb, new_s_arb, r_arb, done_ar = arb_env.step(a_arb)
             r_list.append(r_arb)
@@ -230,32 +246,36 @@ def learn_mod_arb(env_list, n_epi=500, max_steps=500):
                 if d:
                     d = 0.
                     done = torch.Tensor([d], device=device)
-                    mods_memory[m].push(state, action, next_state, reward, done)
+                    if flag[m] == 0:
+                        mods_memory[m].push(state, action, next_state, reward, done)
                     mods_agents[m].optimize_model(mods_memory[m], mods_target_agents[m])
-                    d = 1.
-                    done = torch.Tensor([d], device=device)
 
                     state = get_state_vector(env_list[m+1].cur_state)
                     coeff = arb(state)
                     q_vals = [mods_agents[m](state) for m in range(n_modules)]
-                    pi_s_mods = get_pi_epsgreedy(q_vals, total_steps)
-                    a_arb = torch.sum(coeff * pi_s_mods)
-                    a_arb = torch.round(a_arb).item()
+                    # pi_s_mods = get_pi_epsgreedy(q_vals, total_steps)
+                    # a_arb = torch.sum(coeff * pi_s_mods)
+                    # a_arb = torch.round(a_arb).item()
                     
                     # pi_s_mods = [F.softmax(q_s, dim=1) for q_s in q_vals]
-                    # pi_s_tensor = torch.zeros((1, a_dim))
-                    # for m in range(n_modules):
-                    #     pi_s_tensor += coeff[0][m] * pi_s_mods[m]
+                    pi_s_mods = get_epsgreedy_dist(q_vals, total_steps)
+                    pi_s_tensor = torch.zeros(a_dim)
+                    for m in range(n_modules):
+                        pi_s_tensor += coeff[0][m] * pi_s_mods[m]
                     
-                    # pi_s_np = pi_s_tensor.flatten().detach().cpu().numpy()
-                    # a_arb = np.random.choice(4, p=pi_s_np)
+                    pi_s_np = pi_s_tensor.detach().cpu().numpy()
+                    a_arb = np.random.choice(4, p=pi_s_np)
                     action = torch.LongTensor([[a_arb]], device=device)
                     next_state = state
                     r = 100.
                     mod_r_list[m].append(r)
 
                     reward = torch.FloatTensor([r], device=device)
-                    mods_memory[m].push(state, action, next_state, reward, done)
+                    d = 1.
+                    done = torch.Tensor([d], device=device)
+                    if flag[m] == 0:
+                        mods_memory[m].push(state, action, next_state, reward, done)
+                        flag[m] = 1
                     mods_agents[m].optimize_model(mods_memory[m], mods_target_agents[m])
                 else:
                     mods_memory[m].push(state, action, next_state, reward, done)
@@ -273,14 +293,15 @@ def learn_mod_arb(env_list, n_epi=500, max_steps=500):
                 state = get_state_vector(arb_env.cur_state)
                 coeff = arb(state)
                 q_vals = [mods_agents[m](state) for m in range(n_modules)]
-                pi_s_mods = get_pi_epsgreedy(q_vals, total_steps)
-                a_arb = torch.sum(coeff * pi_s_mods)
-                a_arb = torch.round(a_arb).item()
+                # pi_s_mods = get_pi_epsgreedy(q_vals, total_steps)
+                # a_arb = torch.sum(coeff * pi_s_mods)
+                # a_arb = torch.round(a_arb).item()
                 
                 # pi_s_mods = [F.softmax(q_s, dim=1) for q_s in q_vals]
-                # pi_s_tensor = torch.zeros((1, a_dim))
-                # for m in range(n_modules):
-                #     pi_s_tensor += coeff[0][m] * pi_s_mods[m]
+                pi_s_mods = get_epsgreedy_dist(q_vals, total_steps)
+                pi_s_tensor = torch.zeros(a_dim)
+                for m in range(n_modules):
+                    pi_s_tensor += coeff[0][m] * pi_s_mods[m]
                 
                 # pi_s_np = pi_s_tensor.flatten().detach().cpu().numpy()
                 # a_arb = np.random.choice(4, p=pi_s_np)
