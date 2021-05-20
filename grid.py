@@ -34,12 +34,12 @@ class GridEnv(gym.Env):
 
         self.cur_state = 0
 
-    def get_reward(self, new_state):
-        return 1        
-        # if new_state == self.goal:
-        #     return 10
-        # else:
-        #     return 1
+    def get_reward(self, pre_state, new_state):
+      
+        if pre_state == new_state and new_state == self.goal:
+            return 100
+        else:
+            return 1
     
     def step(self, a):
         prev_state = self.cur_state
@@ -47,37 +47,37 @@ class GridEnv(gym.Env):
 
         if a == 0: #left
             if coord[1] == 0:
-                r = self.get_reward(prev_state)
+                r = self.get_reward(prev_state, self.cur_state)
             else:
                 coord[1] = coord[1] - 1
                 self.cur_state = self.coord_to_state(coord)
-                r = self.get_reward(self.cur_state)
+                r = self.get_reward(prev_state, self.cur_state)
         
         elif a == 1: #up
             if coord[0] == 0:
-                r = self.get_reward(prev_state)
+                r = self.get_reward(prev_state, self.cur_state)
             else:
                 coord[0] = coord[0] - 1
                 self.cur_state = self.coord_to_state(coord)
-                r = self.get_reward(self.cur_state)
+                r = self.get_reward(prev_state, self.cur_state)
         
         elif a == 2: #right
             if coord[1] == self.grid_size - 1:
-                r = self.get_reward(prev_state)
+                r = self.get_reward(prev_state, self.cur_state)
             else:
                 coord[1] = coord[1] + 1
                 self.cur_state = self.coord_to_state(coord)
-                r = self.get_reward(self.cur_state)
+                r = self.get_reward(prev_state, self.cur_state)
         
         elif a == 3: #down
             if coord[0] == self.grid_size - 1:
-                r = self.get_reward(prev_state)
+                r = self.get_reward(prev_state, self.cur_state)
             else:
                 coord[0] = coord[0] + 1
                 self.cur_state = self.coord_to_state(coord)
-                r = self.get_reward(self.cur_state)
+                r = self.get_reward(prev_state, self.cur_state)
         
-        done = 1 if self.cur_state == self.goal else 0
+        done = 1 if (prev_state == self.cur_state and self.cur_state == self.goal) else 0
 
         # self.cur_state = None if done else self.cur_state # for DQN?
         

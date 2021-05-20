@@ -15,9 +15,9 @@ from utils import ReplayMemory, ReplayMemory2, Transition, Transition_done
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-EPS_START = 1.0
-EPS_END = 0.005
-EPS_DECAY = 10000
+EPS_START = 0.9
+EPS_END = 0.05
+EPS_DECAY = 200
 TARGET_UPDATE = 3
 BATCH_SIZE = 8
 GAMMA = 0.9
@@ -28,13 +28,12 @@ def get_epsgreedy_dist(q_vals, steps, a_dim=4):
     n_modules = len(q_vals)
     eps = EPS_END + (EPS_START - EPS_END) * math.exp(-1. * steps / EPS_DECAY)
     pi = []
-    with torch.no_grad():
-        for m in range(n_modules):
-            a_star = q_vals[m].argmax().item()
-            pi_s_a = [eps/a_dim if a!=a_star else 1.-3*eps/a_dim for a in range(a_dim)]
-            pi.append(torch.tensor(pi_s_a, device=device))
+    for m in range(n_modules):
+        a_star = q_vals[m].argmax().item()
+        pi_s_a = [eps/a_dim if a!=a_star else 1.-3*eps/a_dim for a in range(a_dim)]
+        pi.append(torch.tensor(pi_s_a, device=device))
 
-    return pi, eps
+    return pi
 
 
 def get_pi_epsgreedy(q_vals, steps, a_dim=4):
@@ -184,6 +183,7 @@ def test_arb(arb_env, modules_list, n_epi=250, max_steps=500):
 def learn_mod_arb(env_list, n_epi=500, max_steps=500):
     n_modules = len(env_list[1:])
     s_dim, a_dim = 16, 4
+    arb_env = env_list[0]
     arb = Arbitrator().to(device)
     arb_memory = ReplayMemory2(100000)
     mods_agents = []
@@ -201,33 +201,26 @@ def learn_mod_arb(env_list, n_epi=500, max_steps=500):
     all_rets = []
     returns = []
     total_steps = 0
-    eps_list = []
-    all_paths = []
     for epi in range(n_epi):
         step = 0
-        path = []
-        # for i in range(len(env_list)):
-        #     env_list[i].reset()
-        arb_env = env_list[0]
+        for env in env_list:
+            env.reset()
         arb_env.reset()
-        env_list[1].reset()
-        env_list[2].reset()
         r_list = []
         mod_r_list = [[] for _ in range(n_modules)]
         flag = [0] * n_modules 
+        path = []
         while step < max_steps:
             # state, action, next_state, reward, done: Tensors
             # s, a, s_ ,r , done: numbers
             state = get_state_vector(arb_env.cur_state)
-            path.append(arb_env.cur_state)
             coeff = arb(state)
             q_vals = [mods_agents[m](state) for m in range(n_modules)]
             # pi_s_mods = get_pi_epsgreedy(q_vals, total_steps)
             # a_arb = torch.sum(coeff * pi_s_mods)
             # a_arb = torch.round(a_arb).item()
             
-            pi_s_mods, eps = get_epsgreedy_dist(q_vals, total_steps)
-            eps_list.append(eps)
+            pi_s_mods = get_epsgreedy_dist(q_vals, total_steps)
             # pi_s_mods = [F.softmax(q_s, dim=1) for q_s in q_vals]
             pi_s_tensor = torch.zeros(a_dim)
             for m in range(n_modules):
@@ -245,90 +238,33 @@ def learn_mod_arb(env_list, n_epi=500, max_steps=500):
             reward_arb = torch.FloatTensor([r_arb], device=device)
             done_arb = torch.Tensor([done_ar], device=device)
 
+            arb_memory.push(state, action_arb, next_state_arb, reward_arb, done_arb)
+
+            path.append(s_arb)
+
             for m in range(n_modules):
-                s, a, s_, r, d = env_list[m+1].step(a_arb)
-                mod_r_list[m].append(r)
-                reward = torch.FloatTensor([r], device=device)
-                next_state = get_state_vector(s_)
-                action = torch.LongTensor([[a]], device=device)
-                done = torch.Tensor([d], device=device)
-                if d:
-                    d = 0.
-                    done = torch.Tensor([d], device=device)
-                    if flag[m] == 0:
-                        mods_memory[m].push(state, action, next_state, reward, done)
-                    mods_agents[m].optimize_model(mods_memory[m], mods_target_agents[m])
+                if flag[m] == 0:
 
-                    state = get_state_vector(env_list[m+1].cur_state)
-                    coeff = arb(state)
-                    q_vals = [mods_agents[m](state) for m in range(n_modules)]
-                    # pi_s_mods = get_pi_epsgreedy(q_vals, total_steps)
-                    # a_arb = torch.sum(coeff * pi_s_mods)
-                    # a_arb = torch.round(a_arb).item()
-                    
-                    # pi_s_mods = [F.softmax(q_s, dim=1) for q_s in q_vals]
-                    pi_s_mods, eps = get_epsgreedy_dist(q_vals, total_steps)
-                    pi_s_tensor = torch.zeros(a_dim)
-                    for m in range(n_modules):
-                        pi_s_tensor += coeff[0][m] * pi_s_mods[m]
-                    
-                    pi_s_np = pi_s_tensor.detach().cpu().numpy()
-                    a_arb = np.random.choice(4, p=pi_s_np)
-                    action = torch.LongTensor([[a_arb]], device=device)
-                    next_state = state
-                    r = 100.
+                    s, a, s_, r, d = env_list[m+1].step(a_arb)
                     mod_r_list[m].append(r)
-
                     reward = torch.FloatTensor([r], device=device)
-                    d = 1.
+                    next_state = get_state_vector(s_)
+                    action = torch.LongTensor([[a]], device=device)
                     done = torch.Tensor([d], device=device)
-                    if flag[m] == 0:
-                        mods_memory[m].push(state, action, next_state, reward, done)
-                        flag[m] = 1
-                    mods_agents[m].optimize_model(mods_memory[m], mods_target_agents[m])
-                else:
+                                        
                     mods_memory[m].push(state, action, next_state, reward, done)
                     mods_agents[m].optimize_model(mods_memory[m], mods_target_agents[m])
+
+
+                    if d == 1:
+                        flag[m] = 1
                 
-                if epi % TARGET_UPDATE == 0:
-                    mods_target_agents[m].load_state_dict(mods_agents[m].state_dict())
+                    if epi % TARGET_UPDATE == 0:
+                        mods_target_agents[m].load_state_dict(mods_agents[m].state_dict())
 
             if done_ar:
-                done_ar = 0.
-                done_arb = torch.Tensor([done_ar], device=device)
-                arb_memory.push(state, action_arb, next_state_arb, reward_arb, done_arb)
-                done_ar = 1.
-                
-                state = get_state_vector(arb_env.cur_state)
-                coeff = arb(state)
-                q_vals = [mods_agents[m](state) for m in range(n_modules)]
-                # pi_s_mods = get_pi_epsgreedy(q_vals, total_steps)
-                # a_arb = torch.sum(coeff * pi_s_mods)
-                # a_arb = torch.round(a_arb).item()
-                
-                # pi_s_mods = [F.softmax(q_s, dim=1) for q_s in q_vals]
-                pi_s_mods, eps = get_epsgreedy_dist(q_vals, total_steps)
-                eps_list.append(eps)
-
-                pi_s_tensor = torch.zeros(a_dim)
-                for m in range(n_modules):
-                    pi_s_tensor += coeff[0][m] * pi_s_mods[m]
-                
-                # pi_s_np = pi_s_tensor.flatten().detach().cpu().numpy()
-                # a_arb = np.random.choice(4, p=pi_s_np)
-                action_arb = torch.LongTensor([a_arb], device=device)
-                next_state_arb = state
-                r_arb = 100.
-                r_list.append(r_arb)
-                reward_arb = torch.FloatTensor([r_arb], device=device)
-                done_arb = torch.Tensor([done_ar], device=device)
-                step +=1
-                total_steps += 1
-
-                arb_memory.push(state, action_arb, next_state_arb, reward_arb, done_arb)
                 break
-            else:
-                arb_memory.push(state, action_arb, next_state_arb, reward_arb, done_arb)
+
 
         rets = []
         return_so_far = 0
@@ -343,24 +279,37 @@ def learn_mod_arb(env_list, n_epi=500, max_steps=500):
             all_rets = []
             arb_memory = ReplayMemory2(100000)
 
-        returns.append(sum(r_list))
+        returns.append(len(path))
         for m in range(n_modules):
             mods_returns[m].append(sum(mod_r_list[m]))
-        
-        all_paths.append(path)
 
         if epi%100==0:
             print("epi {} done".format(epi))
 
-    print(all_paths)    
-    plt.plot(eps_list)
-    plt.show()
-    
+        print(path)
+        
     return returns, mods_returns
         
 
+def test(env):
+
+
+    for i in range(5):
+        env.reset()
+        path = []
+        done = 0
+        while not done:
+            a = np.random.choice(4)
+            s, a, new_s, r, done = env.step(a)
+            print(s, a, new_s, r, done)
+            path.append(s)
+        print(path)
+
+
+
+
 def main():
-    env = GridEnv()
+    # env = GridEnv()
     # returns = run_dqn(env)
     # print('Done')
 
@@ -379,18 +328,20 @@ def main():
     # returns = test_arb(env, modules_list)
 
 
+
     env1 = GridEnv()
-    env2 = GridEnv(goal=7)
-    env_list = [env1, env1, env2]
+    env2 = GridEnv()
+    env3 = GridEnv(goal=7)
+    env_list = [env1, env2, env3]
 
     returns, mods_returns = learn_mod_arb(env_list)
     plt.plot(returns)
     plt.show()
 
-    plt.plot(mods_returns[0])
-    plt.show()
-    plt.plot(mods_returns[1])
-    plt.show()
+    # plt.plot(mods_returns[0])
+    # plt.show()
+    # plt.plot(mods_returns[1])
+    # plt.show()
 
     # print("mods_returns[0]: ", mods_returns[0])
     # print("mods_returns[1]: ", mods_returns[1])

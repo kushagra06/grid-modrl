@@ -39,7 +39,7 @@ class RLNetwork(nn.Module):
 
 
 class DQNAgent(RLNetwork):
-    def __init__(self, batch_size=8, a_dim=4, s_dim=16):
+    def __init__(self, batch_size=32, a_dim=4, s_dim=16):
         super().__init__()
         # self.linear_relu_stack = nn.Sequential(
         #     nn.Linear(s_dim, 64),
@@ -56,7 +56,7 @@ class DQNAgent(RLNetwork):
             nn.Linear(64, a_dim),
             nn.Softplus()
         )
-        self.optimizer = optim.RMSprop(self.parameters(), lr=0.1)
+        self.optimizer = optim.RMSprop(self.parameters(), lr=0.01)
         self.batch_size = batch_size
 
     
