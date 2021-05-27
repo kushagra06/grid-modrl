@@ -43,45 +43,45 @@ class GridEnv(gym.Env):
     
     def step(self, a):
         prev_state = self.cur_state
-        coord = self.state_to_coord(prev_state)
 
-        if a == 0: #left
-            if coord[1] == 0:
-                r = self.get_reward(prev_state, self.cur_state)
-            else:
-                coord[1] = coord[1] - 1
-                self.cur_state = self.coord_to_state(coord)
-                r = self.get_reward(prev_state, self.cur_state)
-        
-        elif a == 1: #up
-            if coord[0] == 0:
-                r = self.get_reward(prev_state, self.cur_state)
-            else:
-                coord[0] = coord[0] - 1
-                self.cur_state = self.coord_to_state(coord)
-                r = self.get_reward(prev_state, self.cur_state)
-        
-        elif a == 2: #right
-            if coord[1] == self.grid_size - 1:
-                r = self.get_reward(prev_state, self.cur_state)
-            else:
-                coord[1] = coord[1] + 1
-                self.cur_state = self.coord_to_state(coord)
-                r = self.get_reward(prev_state, self.cur_state)
-        
-        elif a == 3: #down
-            if coord[0] == self.grid_size - 1:
-                r = self.get_reward(prev_state, self.cur_state)
-            else:
-                coord[0] = coord[0] + 1
-                self.cur_state = self.coord_to_state(coord)
-                r = self.get_reward(prev_state, self.cur_state)
-        
-        done = 1 if (prev_state == self.cur_state and self.cur_state == self.goal) else 0
-
-        # self.cur_state = None if done else self.cur_state # for DQN?
-        
-        return prev_state, a, self.cur_state, r, done
+        if self.cur_state == self.goal:
+            r = self.get_reward(prev_state, self.cur_state)
+            return prev_state, a, self.cur_state, r, 1
+        else:
+            coord = self.state_to_coord(prev_state)
+            if a == 0: #left
+                if coord[1] == 0:
+                    r = self.get_reward(prev_state, self.cur_state)
+                else:
+                    coord[1] = coord[1] - 1
+                    self.cur_state = self.coord_to_state(coord)
+                    r = self.get_reward(prev_state, self.cur_state)
+            
+            elif a == 1: #up
+                if coord[0] == 0:
+                    r = self.get_reward(prev_state, self.cur_state)
+                else:
+                    coord[0] = coord[0] - 1
+                    self.cur_state = self.coord_to_state(coord)
+                    r = self.get_reward(prev_state, self.cur_state)
+            
+            elif a == 2: #right
+                if coord[1] == self.grid_size - 1:
+                    r = self.get_reward(prev_state, self.cur_state)
+                else:
+                    coord[1] = coord[1] + 1
+                    self.cur_state = self.coord_to_state(coord)
+                    r = self.get_reward(prev_state, self.cur_state)
+            
+            elif a == 3: #down
+                if coord[0] == self.grid_size - 1:
+                    r = self.get_reward(prev_state, self.cur_state)
+                else:
+                    coord[0] = coord[0] + 1
+                    self.cur_state = self.coord_to_state(coord)
+                    r = self.get_reward(prev_state, self.cur_state)
+            
+            return prev_state, a, self.cur_state, r, 0
     
     def state_to_coord(self, state):
         return [state // self.grid_size, state % self.grid_size]
