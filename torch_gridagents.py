@@ -56,7 +56,7 @@ class DQNAgent(RLNetwork):
             nn.Linear(64, a_dim),
             nn.Softplus()
         )
-        self.optimizer = optim.RMSprop(self.parameters(), lr=0.01)
+        self.optimizer = optim.RMSprop(self.linear_relu_stack.parameters(), lr=0.01)
         self.batch_size = batch_size
 
     
@@ -76,7 +76,7 @@ class DQNAgent(RLNetwork):
 
     def optimize_model(self, memory, target_agent):
         if len(memory) < self.batch_size:
-            return
+            return 100.
         
         transitions = memory.sample(self.batch_size)
         batch = Transition_done(*zip(*transitions))
@@ -104,6 +104,8 @@ class DQNAgent(RLNetwork):
         loss.backward()
         self.optimizer.step()
 
+        return loss
+
 
 class Arbitrator(RLNetwork):
     def __init__(self, batch_size=8, a_dim=2, s_dim=16):
@@ -116,7 +118,7 @@ class Arbitrator(RLNetwork):
             nn.Linear(64, a_dim),
             nn.Softmax(dim=1)
         )
-        self.optimizer = optim.RMSprop(self.parameters(), lr=0.001)
+        self.optimizer = optim.RMSprop(self.linear_relu_stack.parameters(), lr=0.001)
     
     def forward(self, state: torch.Tensor):
         coeff_s = self.linear_relu_stack(state)
@@ -140,6 +142,8 @@ class Arbitrator(RLNetwork):
             loss = self.loss1(state_batch, action_batch, mods_agents, ret)
         loss.backward(retain_graph=True)
         self.optimizer.step()
+        
+        return loss
 
 
     def loss1(self, state, action, pi_modules, q_k):

@@ -36,10 +36,10 @@ class GridEnv(gym.Env):
 
     def get_reward(self, pre_state, new_state):
       
-        if pre_state == new_state and new_state == self.goal:
-            return 100
+        if new_state == self.goal:
+            return 10
         else:
-            return 1
+            return -1
     
     def step(self, a):
         prev_state = self.cur_state
@@ -77,7 +77,7 @@ class GridEnv(gym.Env):
                 self.cur_state = self.coord_to_state(coord)
                 r = self.get_reward(prev_state, self.cur_state)
         
-        done = 1 if (prev_state == self.cur_state and self.cur_state == self.goal) else 0
+        done = 1 if (self.cur_state == self.goal) else 0
 
         # self.cur_state = None if done else self.cur_state # for DQN?
         

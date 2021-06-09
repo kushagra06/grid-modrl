@@ -8,18 +8,21 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+from torch.distributions import Categorical
+# from torch.utils.tensorboard import SummaryWriter
 
 from torch_gridagents import DQNAgent, Arbitrator
 from grid import GridEnv
 from utils import ReplayMemory, ReplayMemory2, Transition, Transition_done
+
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 EPS_START = 0.9
 EPS_END = 0.05
 EPS_DECAY = 200
-TARGET_UPDATE = 3
-BATCH_SIZE = 8
+TARGET_UPDATE = 5
+BATCH_SIZE = 32
 GAMMA = 0.9
 
 
@@ -76,7 +79,7 @@ def get_state_vector(s, s_dim=16):
     return torch.FloatTensor(x)
 
 
-def run_dqn(env, n_epi=50):
+def run_dqn(env, n_epi=100):
     agent = DQNAgent(BATCH_SIZE).to(device)
     target_agent = DQNAgent(BATCH_SIZE).to(device)
     target_agent.load_state_dict(agent.state_dict())
@@ -85,34 +88,37 @@ def run_dqn(env, n_epi=50):
     epi_durations = []
     returns = []
     steps = 0
+    memory = ReplayMemory2()
     for epi in range(n_epi):
         env.reset()
         cumulative_r = 0.
+        path = []
         for t in count():
             state = get_state_vector(env.cur_state)
             action = agent.get_action_epsgreedy(state, steps)
             np_action = action.detach().cpu().numpy()[0][0] #convert tensor to np
             s, a, s_, r, done = env.step(np_action)
-            r = 100 if done else 1
             cumulative_r += r
             steps += 1
             reward = torch.FloatTensor([r], device=device)
             next_state = get_state_vector(s_)
+            done_tensor = torch.tensor([done], device=device)
+            memory.push(state, action, next_state, reward, done_tensor)
 
-            memory.push(state, action, next_state, reward)
-
-            optimize_model(agent, target_agent, optimizer, done)
+            agent.optimize_model(memory, target_agent)
+            path.append(s)
 
             if done:
                 epi_durations.append(t+1)
                 break
         
         returns.append(cumulative_r)
-        print("epi {} over".format(epi))        
+        print(path)
+        if epi%10 == 0:
+            print("epi {} over".format(epi))        
 
-        # if epi % TARGET_UPDATE == 0:
-        #     print("epi {} over".format(epi))        
-        #     target_agent.load_state_dict(agent.state_dict())
+        if epi % TARGET_UPDATE == 0:
+            target_agent.load_state_dict(agent.state_dict())
     
     # torch.save(agent.state_dict(), "./pytorch_models/dqn_4x4_g7.pt")
     return returns
@@ -190,6 +196,8 @@ def learn_mod_arb(env_list, n_epi=500, max_steps=500):
     mods_target_agents = []
     mods_memory = []
     mods_returns = []
+    epi_durations = []
+
     for i in range(n_modules):
         mods_agents.append(DQNAgent().to(device))
         mods_memory.append(ReplayMemory2(100000))
@@ -201,7 +209,8 @@ def learn_mod_arb(env_list, n_epi=500, max_steps=500):
     all_rets = []
     returns = []
     total_steps = 0
-    for epi in range(n_epi):
+    # writer = SummaryWriter()
+    for epi in range(1, n_epi+1):
         step = 0
         for env in env_list:
             env.reset()
@@ -216,6 +225,7 @@ def learn_mod_arb(env_list, n_epi=500, max_steps=500):
             state = get_state_vector(arb_env.cur_state)
             coeff = arb(state)
             q_vals = [mods_agents[m](state) for m in range(n_modules)]
+            # q_vals.append(torch.tensor([5.0, 5.0, 5.0, 5.0]))
             # pi_s_mods = get_pi_epsgreedy(q_vals, total_steps)
             # a_arb = torch.sum(coeff * pi_s_mods)
             # a_arb = torch.round(a_arb).item()
@@ -244,7 +254,6 @@ def learn_mod_arb(env_list, n_epi=500, max_steps=500):
 
             for m in range(n_modules):
                 if flag[m] == 0:
-
                     s, a, s_, r, d = env_list[m+1].step(a_arb)
                     mod_r_list[m].append(r)
                     reward = torch.FloatTensor([r], device=device)
@@ -253,8 +262,9 @@ def learn_mod_arb(env_list, n_epi=500, max_steps=500):
                     done = torch.Tensor([d], device=device)
                                         
                     mods_memory[m].push(state, action, next_state, reward, done)
-                    mods_agents[m].optimize_model(mods_memory[m], mods_target_agents[m])
-
+                    loss = mods_agents[m].optimize_model(mods_memory[m], mods_target_agents[m])
+                    # if m==0:
+                    #     writer.add_scalar("m0-loss", loss, epi)
 
                     if d == 1:
                         flag[m] = 1
@@ -262,10 +272,13 @@ def learn_mod_arb(env_list, n_epi=500, max_steps=500):
                     if epi % TARGET_UPDATE == 0:
                         mods_target_agents[m].load_state_dict(mods_agents[m].state_dict())
 
+            
+            # writer.add_scalar("Loss/train", loss, epi)
+
             if done_ar:
                 break
 
-
+        epi_durations.append(total_steps)
         rets = []
         return_so_far = 0
         for t in range(len(r_list) - 1, -1, -1):
@@ -274,21 +287,35 @@ def learn_mod_arb(env_list, n_epi=500, max_steps=500):
         # The returns are stored backwards in time, so we need to revert it
         rets = list(reversed(rets))
         all_rets.extend(rets)
-        if epi%7==0:
-            arb.optimize(arb_memory, mods_agents, torch.FloatTensor(all_rets))
+        if epi%8==0:
+            arb_loss = arb.optimize(arb_memory, mods_agents, torch.FloatTensor(all_rets))
+            # writer.add_scalar("arb_loss", arb_loss, epi)
+            # writer.add_scalar("lambda2(14)", arb(get_state_vector(14))[0][1], epi)
+            # s14 = get_state_vector(14)
+            # coeff14 = arb(s14)
+            # q_14 = [mods_agents[m](s14) for m in range(n_modules)]
+            # pi_s14_mods = get_epsgreedy_dist(q_14, total_steps)
+            # pi_s14 = torch.zeros(a_dim)
+            # for m in range(n_modules):
+            #     pi_s14 += coeff14[0][m] * pi_s14_mods[m]
+            # entropy14 = Categorical(probs = pi_s14).entropy()
+            # writer.add_scalar("entropy_s14", entropy14, epi)
+
             all_rets = []
             arb_memory = ReplayMemory2(100000)
 
-        returns.append(len(path))
+        returns.append(sum(r_list))
         for m in range(n_modules):
             mods_returns[m].append(sum(mod_r_list[m]))
 
         if epi%100==0:
             print("epi {} done".format(epi))
 
-        print(path)
-        
-    return returns, mods_returns
+        # print(path)
+    
+    # writer.flush()
+    # writer.close()  
+    return returns, mods_returns, epi_durations
         
 
 def test(env):
@@ -306,7 +333,18 @@ def test(env):
         print(path)
 
 
+def plot_avg(y, w=10):
+    plt.figure(2)
+    y_t = torch.tensor(y, dtype=torch.float) 
+    plt.plot(y_t.numpy())
+    avgs = y_t.unfold(0, w, 1).mean(1) # Sliding avg with a window size w OR use moving_average()
+    print("avgs: ", avgs.numpy())
+    plt.plot(avgs.numpy())
+    plt.show()
 
+
+def moving_average(y, w):
+    return np.convolve(y, np.ones(w), 'valid') / w
 
 def main():
     # env = GridEnv()
@@ -333,18 +371,10 @@ def main():
     env2 = GridEnv()
     env3 = GridEnv(goal=7)
     env_list = [env1, env2, env3]
+    returns, mods_returns, epi_durations = learn_mod_arb(env_list)
+    plot_avg(epi_durations)
+    plot_avg(returns)
 
-    returns, mods_returns = learn_mod_arb(env_list)
-    plt.plot(returns)
-    plt.show()
-
-    # plt.plot(mods_returns[0])
-    # plt.show()
-    # plt.plot(mods_returns[1])
-    # plt.show()
-
-    # print("mods_returns[0]: ", mods_returns[0])
-    # print("mods_returns[1]: ", mods_returns[1])
 
 
 if __name__ == "__main__":
